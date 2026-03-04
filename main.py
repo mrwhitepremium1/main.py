@@ -29,8 +29,6 @@ bot = Client(
     bot_token=config.BOT_TOKEN
 )
 
-ADMIN_ID = int(config.ADMIN_ID)  # Set your Telegram ID in env
-
 # -----------------------
 # /start Command
 # -----------------------
@@ -41,11 +39,23 @@ async def start(client, message):
             [InlineKeyboardButton("💳 Buy Ticket ¢150", callback_data="buy_ticket")]
         ]
     )
-    await message.reply_text(
-        "🔥 Welcome!\n\n"
-        "Premium Daily Ticket available.\n"
-        "Click the button below to purchase.",
-        reply_markup=keyboard
+
+    caption = (
+        "🎉 Welcome to *Victory Odds Premium Tips Bot*!\n\n"
+        "Every day, you can access a *daily premium ticket* with exclusive tips.\n\n"
+        "💡 How to use:\n"
+        "1️⃣ Click the button below to purchase today’s ticket.\n"
+        "2️⃣ Complete the payment securely via Paystack.\n"
+        "3️⃣ Receive your ticket instantly!\n\n"
+        "📌 Note: Tickets are available once per day per user.\n"
+        "⚡ Stay updated for daily premium ticket"
+    )
+
+    await message.reply_photo(
+        photo=config.TICKET_URL,
+        caption=caption,
+        reply_markup=keyboard,
+        parse_mode="markdown"
     )
 
 # -----------------------
@@ -59,7 +69,6 @@ async def buy_button(client, callback_query):
         await callback_query.answer("✅ You already purchased today.", show_alert=True)
         return
 
-    # Initialize Paystack transaction
     url = "https://api.paystack.co/transaction/initialize"
     headers = {
         "Authorization": f"Bearer {config.PAYSTACK_SECRET_KEY}",
@@ -67,7 +76,7 @@ async def buy_button(client, callback_query):
     }
     data = {
         "email": f"user{user_id}@telegram.com",
-        "amount": 15000,
+        "amount": 15000,  # ¢150 in kobo
         "metadata": {"user_id": user_id}
     }
 
@@ -124,20 +133,22 @@ async def paystack_webhook(request: Request):
 # -----------------------
 # Admin Commands
 # -----------------------
-@bot.on_message(filters.command("broadcast") & filters.user(ADMIN_ID))
+@bot.on_message(filters.command("broadcast") & filters.user(config.ADMIN_ID))
 async def broadcast(client, message):
+    if len(message.text.split(" ", 1)) < 2:
+        await message.reply_text("Usage: /broadcast Your message here")
+        return
     text = message.text.split(" ", 1)[1]
-    cursor = database.cursor
-    cursor.execute("SELECT user_id FROM users")
-    all_users = cursor.fetchall()
-    for user in all_users:
+
+    all_users = database.get_all_users()
+    for user_id in all_users:
         try:
-            await bot.send_message(user[0], text)
+            await bot.send_message(user_id, text)
         except:
             continue
     await message.reply_text("✅ Broadcast sent.")
 
-@bot.on_message(filters.command("stats") & filters.user(ADMIN_ID))
+@bot.on_message(filters.command("stats") & filters.user(config.ADMIN_ID))
 async def stats(client, message):
     cursor = database.cursor
     cursor.execute("SELECT COUNT(*) FROM users WHERE last_purchase = date('now')")
