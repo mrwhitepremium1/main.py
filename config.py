@@ -1,6 +1,6 @@
 API_ID = 27768019
 API_HASH = "b1941cfa6894b10b766b14fec0c27e16"
-BOT_TOKEN = "7336842948:AAGxu48glkXQkqJTr9HzLm-JKVluchhv-MY"
+BOT_TOKEN = "7336842948:AAGzlVY0Rl1bCK0mjFteOn5YZluXgOa54bc"
 
 TICKET_URL = "https://github.com/mrwhitepremium1/main.py/raw/refs/heads/main/IMG_9460.png"
 
