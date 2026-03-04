@@ -74,7 +74,7 @@ async def buy_button(client, callback_query):
     }
     data = {
         "email": f"user{user_id}@telegram.com",
-        "amount": 15000,  # ¢150 in kobo
+        "amount": 200,  # ¢2 in kobo
         "metadata": {"user_id": user_id}
     }
 
