@@ -44,7 +44,7 @@ async def buy_ticket(client, message):
         await message.reply_text("✅ You already purchased today’s ticket!")
         return
 
-    payment_link = f"https://paystack.com/pay/YOUR_PAYMENT_LINK?metadata[user_id]={user_id}"
+    payment_link = f"https://paystack.shop/pay/victoryoddsmetadata[user_id]={user_id}"
 
     await message.reply_text(
         f"💳 Click below to pay:\n\n{payment_link}"
