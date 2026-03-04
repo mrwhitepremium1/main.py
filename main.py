@@ -1,13 +1,18 @@
 import os
 import asyncio
-from pyrogram import Client, filters
-from fastapi import FastAPI, Request
-import uvicorn
 import hmac
 import hashlib
 import json
+from pyrogram import Client, filters
+from fastapi import FastAPI, Request
+import uvicorn
 import database
 import config
+
+# -------------------------------
+# FastAPI app (IMPORTANT: must be named app)
+# -------------------------------
+app = FastAPI()
 
 # -------------------------------
 # Telegram Bot
@@ -19,53 +24,58 @@ bot = Client(
     bot_token=config.BOT_TOKEN
 )
 
-# /start command
+# -------------------------------
+# Bot Commands
+# -------------------------------
+
 @bot.on_message(filters.command("start"))
 async def start(client, message):
     await message.reply_text(
         "🔥 Welcome!\n\n"
-        "Daily Ticket is available for purchase.\n"
-        "Click /buy to get your ticket."
+        "Daily Premium Ticket is available.\n"
+        "Use /buy to purchase today's ticket."
     )
 
-# /buy command
 @bot.on_message(filters.command("buy"))
 async def buy_ticket(client, message):
     user_id = message.from_user.id
+
     if database.is_paid(user_id):
-        await message.reply_text("✅ You already purchased your ticket today!")
+        await message.reply_text("✅ You already purchased today’s ticket!")
         return
 
-    paystack_link = f"https://paystack.com/pay/your_payment_code_here?metadata[user_id]={user_id}"
-    await message.reply_text(f"💳 Click to pay and receive your ticket:\n\n{paystack_link}")
+    payment_link = f"https://paystack.com/pay/YOUR_PAYMENT_LINK?metadata[user_id]={user_id}"
+
+    await message.reply_text(
+        f"💳 Click below to pay:\n\n{payment_link}"
+    )
 
 # -------------------------------
-# FastAPI Webhook for Paystack
+# Paystack Webhook
 # -------------------------------
-webhook_app = FastAPI()
 
-@webhook_app.post("/paystack-webhook")
-async def paystack_webhook(req: Request):
-    payload = await req.body()
-    signature = req.headers.get("x-paystack-signature")
+@app.post("/paystack-webhook")
+async def paystack_webhook(request: Request):
+    payload = await request.body()
+    signature = request.headers.get("x-paystack-signature")
 
-    # Verify signature
-    computed_sig = hmac.new(
-        key=bytes(config.PAYSTACK_SECRET_KEY, "utf-8"),
-        msg=payload,
-        digestmod=hashlib.sha512
+    computed_signature = hmac.new(
+        config.PAYSTACK_SECRET_KEY.encode("utf-8"),
+        payload,
+        hashlib.sha512
     ).hexdigest()
 
-    if signature != computed_sig:
-        return {"status": "failed", "reason": "Invalid signature"}
+    if signature != computed_signature:
+        return {"status": "invalid signature"}
 
     event = json.loads(payload)
 
-    if event['event'] == "charge.success":
-        user_id = int(event['data']['metadata']['user_id'])
-        reference = event['data']['reference']
+    if event["event"] == "charge.success":
+        user_id = int(event["data"]["metadata"]["user_id"])
+        reference = event["data"]["reference"]
+
         database.mark_paid(user_id)
-        database.add_payment(user_id, reference, event['data']['amount'], status="success")
+        database.add_payment(user_id, reference, event["data"]["amount"], "success")
 
         # Send ticket automatically
         await bot.send_photo(user_id, config.TICKET_URL)
@@ -73,20 +83,13 @@ async def paystack_webhook(req: Request):
     return {"status": "success"}
 
 # -------------------------------
-# Run Bot + Webhook Together
+# Start Bot When Server Starts
 # -------------------------------
-async def start_bot_and_webhook():
-    await bot.start()
-    uvicorn_config = uvicorn.Config(
-        webhook_app,
-        host="0.0.0.0",
-        port=int(os.environ.get("PORT", 8000)),
-        log_level="info"
-    )
-    server = uvicorn.Server(uvicorn_config)
-    await server.serve()
-    await bot.stop()
 
-# Schedule in existing event loop (fixes asyncio.run issue)
-loop = asyncio.get_event_loop()
-loop.create_task(start_bot_and_webhook())
+@app.on_event("startup")
+async def startup():
+    await bot.start()
+
+@app.on_event("shutdown")
+async def shutdown():
+    await bot.stop()
