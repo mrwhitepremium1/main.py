@@ -4,8 +4,8 @@ import hmac
 import hashlib
 import requests
 from pyrogram import Client, filters
+from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from fastapi import FastAPI, Request
-import uvicorn
 import database
 import config
 
@@ -41,7 +41,7 @@ async def start(client, message):
     )
 
 # -----------------------
-# /buy Command — Paystack API
+# /buy Command — With Inline Button
 # -----------------------
 @bot.on_message(filters.command("buy"))
 async def buy_ticket(client, message):
@@ -59,7 +59,7 @@ async def buy_ticket(client, message):
     }
     data = {
         "email": f"user{user_id}@telegram.com",  # dummy email for Telegram user
-        "amount": 15000,  # Amount in kobo (2000 NGN)
+        "amount": 15000,  # 150 NGN in kobo
         "metadata": {"user_id": user_id}
     }
 
@@ -68,7 +68,18 @@ async def buy_ticket(client, message):
 
     if res.get("status"):
         payment_link = res["data"]["authorization_url"]
-        await message.reply_text(f"💳 Click to pay:\n\n{payment_link}")
+
+        # Create inline button
+        keyboard = InlineKeyboardMarkup(
+            [
+                [InlineKeyboardButton("💳 Pay 150 NGN", url=payment_link)]
+            ]
+        )
+
+        await message.reply_text(
+            "Click the button below to pay and get your ticket:",
+            reply_markup=keyboard
+        )
     else:
         await message.reply_text("❌ Payment initialization failed. Try again later.")
 
