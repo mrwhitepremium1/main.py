@@ -55,7 +55,7 @@ async def start(client, message):
         photo=config.TICKET_URL,
         caption=caption,
         reply_markup=keyboard,
-        parse_mode="markdown"
+        parse_mode="markdown_v2"
     )
 
 # -----------------------
