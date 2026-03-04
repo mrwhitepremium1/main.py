@@ -59,7 +59,7 @@ async def buy_ticket(client, message):
     }
     data = {
         "email": f"user{user_id}@telegram.com",  # dummy email for Telegram user
-        "amount": 15000,  # ¢150  in kobo
+        "amount": 15000,  # ¢150 in kobo
         "metadata": {"user_id": user_id}
     }
 
