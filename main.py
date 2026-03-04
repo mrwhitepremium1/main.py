@@ -72,7 +72,7 @@ async def buy_ticket(client, message):
         # Create inline button
         keyboard = InlineKeyboardMarkup(
             [
-                [InlineKeyboardButton("💳 Pay 150 NGN", url=payment_link)]
+                [InlineKeyboardButton("💳 Pay ¢150", url=payment_link)]
             ]
         )
 
