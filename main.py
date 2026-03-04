@@ -30,25 +30,31 @@ bot = Client(
 )
 
 # -----------------------
-# /start Command
+# /start Command — Shows Button
 # -----------------------
 @bot.on_message(filters.command("start"))
 async def start(client, message):
+    keyboard = InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("💳 Buy Ticket ¢150", callback_data="buy_ticket")]
+        ]
+    )
     await message.reply_text(
         "🔥 Welcome!\n\n"
         "Premium Daily Ticket available.\n"
-        "Use /buy to purchase."
+        "Click the button below to purchase.",
+        reply_markup=keyboard
     )
 
 # -----------------------
-# /buy Command — With Inline Button
+# Callback Query — Buy Button
 # -----------------------
-@bot.on_message(filters.command("buy"))
-async def buy_ticket(client, message):
-    user_id = message.from_user.id
+@bot.on_callback_query(filters.regex("buy_ticket"))
+async def buy_button(client, callback_query):
+    user_id = callback_query.from_user.id
 
     if database.is_paid(user_id):
-        await message.reply_text("✅ You already purchased today.")
+        await callback_query.answer("✅ You already purchased today.", show_alert=True)
         return
 
     # Initialize Paystack transaction
@@ -58,8 +64,8 @@ async def buy_ticket(client, message):
         "Content-Type": "application/json"
     }
     data = {
-        "email": f"user{user_id}@telegram.com",  # dummy email for Telegram user
-        "amount": 15000,  # ¢150 in kobo
+        "email": f"user{user_id}@telegram.com",
+        "amount": 15000,  # 150 Naira in kobo
         "metadata": {"user_id": user_id}
     }
 
@@ -69,19 +75,18 @@ async def buy_ticket(client, message):
     if res.get("status"):
         payment_link = res["data"]["authorization_url"]
 
-        # Create inline button
         keyboard = InlineKeyboardMarkup(
             [
                 [InlineKeyboardButton("💳 Pay ¢150", url=payment_link)]
             ]
         )
 
-        await message.reply_text(
+        await callback_query.message.edit_text(
             "Click the button below to pay and get your ticket:",
             reply_markup=keyboard
         )
     else:
-        await message.reply_text("❌ Payment initialization failed. Try again later.")
+        await callback_query.answer("❌ Payment initialization failed.", show_alert=True)
 
 # -----------------------
 # Paystack Webhook
