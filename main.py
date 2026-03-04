@@ -7,8 +7,8 @@ from datetime import date
 from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from fastapi import FastAPI, Request
-import database
-import config
+import database  # Your local database.py file
+import config    # Your local config.py file
 
 # -----------------------
 # FastAPI App
@@ -20,7 +20,7 @@ async def home():
     return {"status": "Bot is running"}
 
 # -----------------------
-# Telegram Bot
+# Telegram Bot Client
 # -----------------------
 bot = Client(
     "ticket_bot",
@@ -101,6 +101,7 @@ async def paystack_webhook(request: Request):
     payload = await request.body()
     signature = request.headers.get("x-paystack-signature")
 
+    # Verify signature
     computed = hmac.new(
         config.PAYSTACK_SECRET_KEY.encode("utf-8"),
         payload,
@@ -112,6 +113,7 @@ async def paystack_webhook(request: Request):
 
     event = json.loads(payload)
 
+    # Payment Success
     if event.get("event") == "charge.success":
         user_id = int(event["data"]["metadata"]["user_id"])
         reference = event["data"]["reference"]
@@ -122,6 +124,7 @@ async def paystack_webhook(request: Request):
 
         await bot.send_photo(user_id, config.TICKET_URL)
 
+    # Payment Failed
     elif event.get("event") == "charge.failed":
         user_id = int(event["data"]["metadata"]["user_id"])
         await bot.send_message(user_id, "❌ Your payment failed. Please try again.")
@@ -154,7 +157,7 @@ async def stats(client, message):
     await message.reply_text(f"📊 Users who purchased today: {count}")
 
 # -----------------------
-# Startup & Shutdown
+# Startup & Shutdown Events
 # -----------------------
 @app.on_event("startup")
 async def startup():
