@@ -1,6 +1,6 @@
-API_ID = "YOUR_API_ID"
-API_HASH = "YOUR_API_HASH"
-BOT_TOKEN = "YOUR_BOT_TOKEN"
+API_ID = 27768019
+API_HASH = "b1941cfa6894b10b766b14fec0c27e16"
+BOT_TOKEN = "7336842948:AAGxu48glkXQkqJTr9HzLm-JKVluchhv-MY"
 
 TICKET_URL = "https://github.com/mrwhitepremium1/main.py/raw/refs/heads/main/IMG_9460.png"
 
@@ -11,4 +11,4 @@ PAYSTACK_PAYMENT_LINK = "https://paystack.shop/pay/victoryodds?metadata[user_id]
 NOWPAYMENTS_LINK = "https://nowpayments.io/payment/?iid=YOUR_NOWPAYMENTS_ID&source=button"
 
 # Admin Telegram ID
-ADMIN_ID = 123456789
+ADMIN_ID = -1001836835793
