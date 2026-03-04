@@ -35,27 +35,24 @@ bot = Client(
 @bot.on_message(filters.command("start"))
 async def start(client, message):
     keyboard = InlineKeyboardMarkup(
-        [
-            [InlineKeyboardButton("💳 Buy Ticket ¢150", callback_data="buy_ticket")]
-        ]
+        [[InlineKeyboardButton("💳 Buy Ticket ¢150", callback_data="buy_ticket")]]
     )
 
     caption = (
-        "🎉 Welcome to *Victory Odds Premium Tips Bot*!\n\n"
-        "Every day, you can access a *daily premium ticket* with exclusive tips.\n\n"
-        "💡 How to use:\n"
-        "1️⃣ Click the button below to purchase today’s ticket.\n"
-        "2️⃣ Complete the payment securely via Paystack.\n"
+        "🎉 WELCOME to Victory Odds Premium Tips Bot!\n\n"
+        "EVERY DAY, you can access a DAILY PREMIUM TICKET with exclusive tips.\n\n"
+        "💡 HOW TO USE:\n"
+        "1️⃣ Click the button below to purchase today’s ticket\n"
+        "2️⃣ Complete the payment securely via Paystack\n"
         "3️⃣ Receive your ticket instantly!\n\n"
-        "📌 Note: Tickets are available once per day per user.\n"
-        "⚡ Stay updated for daily premium ticket"
+        "📌 NOTE: Tickets are available once per day per user\n"
+        "⚡ Stay updated for daily premium tips and predictions!"
     )
 
     await message.reply_photo(
         photo=config.TICKET_URL,
         caption=caption,
-        reply_markup=keyboard,
-        parse_mode="html"
+        reply_markup=keyboard
     )
 
 # -----------------------
@@ -69,6 +66,7 @@ async def buy_button(client, callback_query):
         await callback_query.answer("✅ You already purchased today.", show_alert=True)
         return
 
+    # Initialize Paystack transaction
     url = "https://api.paystack.co/transaction/initialize"
     headers = {
         "Authorization": f"Bearer {config.PAYSTACK_SECRET_KEY}",
