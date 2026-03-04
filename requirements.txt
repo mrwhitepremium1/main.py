@@ -1,5 +1,5 @@
 pyrogram
-requests
+tgcrypto
 fastapi
 uvicorn
-tgcrypto
+requests
