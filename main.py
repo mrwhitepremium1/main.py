@@ -3,6 +3,7 @@ import json
 import hmac
 import hashlib
 import requests
+from datetime import date
 from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from fastapi import FastAPI, Request
@@ -14,7 +15,6 @@ import config
 # -----------------------
 app = FastAPI()
 
-# Root endpoint for Railway health check
 @app.get("/")
 async def home():
     return {"status": "Bot is running"}
@@ -29,8 +29,10 @@ bot = Client(
     bot_token=config.BOT_TOKEN
 )
 
+ADMIN_ID = int(config.ADMIN_ID)  # Set your Telegram ID in env
+
 # -----------------------
-# /start Command — Shows Button
+# /start Command
 # -----------------------
 @bot.on_message(filters.command("start"))
 async def start(client, message):
@@ -47,7 +49,7 @@ async def start(client, message):
     )
 
 # -----------------------
-# Callback Query — Buy Button
+# Buy Ticket Button
 # -----------------------
 @bot.on_callback_query(filters.regex("buy_ticket"))
 async def buy_button(client, callback_query):
@@ -65,7 +67,7 @@ async def buy_button(client, callback_query):
     }
     data = {
         "email": f"user{user_id}@telegram.com",
-        "amount": 15000,  # 150 Naira in kobo
+        "amount": 15000,
         "metadata": {"user_id": user_id}
     }
 
@@ -74,13 +76,9 @@ async def buy_button(client, callback_query):
 
     if res.get("status"):
         payment_link = res["data"]["authorization_url"]
-
         keyboard = InlineKeyboardMarkup(
-            [
-                [InlineKeyboardButton("💳 Pay ¢150", url=payment_link)]
-            ]
+            [[InlineKeyboardButton("💳 Pay ¢150", url=payment_link)]]
         )
-
         await callback_query.message.edit_text(
             "Click the button below to pay and get your ticket:",
             reply_markup=keyboard
@@ -96,7 +94,6 @@ async def paystack_webhook(request: Request):
     payload = await request.body()
     signature = request.headers.get("x-paystack-signature")
 
-    # Verify signature
     computed = hmac.new(
         config.PAYSTACK_SECRET_KEY.encode("utf-8"),
         payload,
@@ -108,23 +105,47 @@ async def paystack_webhook(request: Request):
 
     event = json.loads(payload)
 
-    # Successful payment
     if event.get("event") == "charge.success":
         user_id = int(event["data"]["metadata"]["user_id"])
         reference = event["data"]["reference"]
         amount = event["data"]["amount"]
 
-        # Mark paid in database
         database.mark_paid(user_id)
         database.add_payment(user_id, reference, amount, "success")
 
-        # Send ticket automatically
         await bot.send_photo(user_id, config.TICKET_URL)
+
+    elif event.get("event") == "charge.failed":
+        user_id = int(event["data"]["metadata"]["user_id"])
+        await bot.send_message(user_id, "❌ Your payment failed. Please try again.")
 
     return {"status": "success"}
 
 # -----------------------
-# Startup & Shutdown Events
+# Admin Commands
+# -----------------------
+@bot.on_message(filters.command("broadcast") & filters.user(ADMIN_ID))
+async def broadcast(client, message):
+    text = message.text.split(" ", 1)[1]
+    cursor = database.cursor
+    cursor.execute("SELECT user_id FROM users")
+    all_users = cursor.fetchall()
+    for user in all_users:
+        try:
+            await bot.send_message(user[0], text)
+        except:
+            continue
+    await message.reply_text("✅ Broadcast sent.")
+
+@bot.on_message(filters.command("stats") & filters.user(ADMIN_ID))
+async def stats(client, message):
+    cursor = database.cursor
+    cursor.execute("SELECT COUNT(*) FROM users WHERE last_purchase = date('now')")
+    count = cursor.fetchone()[0]
+    await message.reply_text(f"📊 Users who purchased today: {count}")
+
+# -----------------------
+# Startup & Shutdown
 # -----------------------
 @app.on_event("startup")
 async def startup():
