@@ -1,112 +1,73 @@
-import os
-import json
+import asyncio
 from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from fastapi import FastAPI, Request
-import database  # Your local database.py
-import config    # Your local config.py
+import config
 
-# -----------------------
-# FastAPI App
-# -----------------------
-app = FastAPI()
+# In-memory database for demonstration (replace with real DB if needed)
+users_db = set()
 
-@app.get("/")
-async def home():
-    return {"status": "Bot is running"}
-
-# -----------------------
-# Telegram Bot Client
-# -----------------------
 bot = Client(
-    "ticket_bot",
+    "premium_bot",
     api_id=int(config.API_ID),
     api_hash=config.API_HASH,
     bot_token=config.BOT_TOKEN
 )
 
-# -----------------------
-# /start Command
-# -----------------------
+# /start command
 @bot.on_message(filters.command("start"))
 async def start(client, message):
+    users_db.add(message.from_user.id)
     keyboard = InlineKeyboardMarkup(
-        [[InlineKeyboardButton("💳 Buy Ticket ¢150", url=config.SELAR_PAYMENT_LINK)]]
+        [
+            [
+                InlineKeyboardButton(
+                    "💳 Buy Ticket ¢150",
+                    url=config.PAYSTACK_PAYMENT_LINK.format(user_id=message.from_user.id)
+                )
+            ]
+        ]
     )
 
     caption = (
-        "🎉 WELCOME to Victory Odds Premium Tips Bot!\n\n"
-        "EVERY DAY, you can access a DAILY PREMIUM TICKET with exclusive tips.\n\n"
-        "💡 HOW TO USE:\n"
-        "1️⃣ Click the button below to purchase today’s ticket\n"
-        "2️⃣ Complete the payment securely via Selar\n"
-        "3️⃣ Receive your ticket instantly!\n\n"
-        "📌 NOTE: Tickets are available once per day per user\n"
-        "⚡ Stay updated for daily premium tips and predictions!"
+        "🔥 Welcome!\n\n"
+        "Daily Premium Ticket is available.\n"
+        "Click below to pay and receive your ticket."
     )
 
     await message.reply_photo(
         photo=config.TICKET_URL,
         caption=caption,
+        parse_mode="Markdown",
         reply_markup=keyboard
     )
 
-# -----------------------
-# Selar Webhook Endpoint
-# -----------------------
-@app.post("/selar-webhook")
-async def selar_webhook(request: Request):
-    data = await request.json()
-
-    # Extract relevant fields
-    user_id = int(data.get("user_id", 0))  # You must pass Telegram ID in Selar metadata
-    product_id = data.get("product_id")
-    status = data.get("status")  # "success", "failed", etc.
-
-    # Verify the product is correct
-    if status == "success" and product_id == config.SELAR_PRODUCT_ID:
-        # Mark user as paid for the day
-        database.mark_paid(user_id)
-        database.add_payment(user_id, data.get("transaction_id"), data.get("amount"), "success")
-
-        # Send ticket photo
-        await bot.send_photo(user_id, config.TICKET_URL)
-
-    elif status == "failed" and user_id:
-        await bot.send_message(user_id, "❌ Your payment failed. Please try again.")
-
-    return {"status": "ok"}
-
-# -----------------------
-# Admin Commands
-# -----------------------
+# /broadcast command (admin only)
 @bot.on_message(filters.command("broadcast") & filters.user(config.ADMIN_ID))
 async def broadcast(client, message):
-    if len(message.text.split(" ", 1)) < 2:
+    if len(message.command) < 2:
         await message.reply_text("Usage: /broadcast Your message here")
         return
-    text = message.text.split(" ", 1)[1]
 
-    all_users = database.get_all_users()
-    for user_id in all_users:
+    text = message.text.split(maxsplit=1)[1]
+    count = 0
+    for user_id in users_db:
         try:
             await bot.send_message(user_id, text)
+            count += 1
         except:
             continue
-    await message.reply_text("✅ Broadcast sent.")
+    await message.reply_text(f"Broadcast sent to {count} users.")
 
+# /stats command (admin only)
 @bot.on_message(filters.command("stats") & filters.user(config.ADMIN_ID))
 async def stats(client, message):
-    count = database.count_today_purchases()
-    await message.reply_text(f"📊 Users who purchased today: {count}")
+    await message.reply_text(f"Total users: {len(users_db)}")
 
-# -----------------------
-# Startup & Shutdown
-# -----------------------
-@app.on_event("startup")
-async def startup():
+# Run the bot
+async def main():
     await bot.start()
+    print("Bot is running...")
+    await asyncio.Event().wait()
 
-@app.on_event("shutdown")
-async def shutdown():
-    await bot.stop()
+if __name__ == "__main__":
+    asyncio.run(main())
