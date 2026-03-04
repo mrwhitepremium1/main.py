@@ -21,12 +21,14 @@ CREATE TABLE IF NOT EXISTS payments (
     created_at DATE
 )
 """)
-
 conn.commit()
 
 def mark_paid(user_id):
     today = date.today()
-    cursor.execute("INSERT OR REPLACE INTO users (user_id, last_purchase) VALUES (?, ?)", (user_id, today))
+    cursor.execute(
+        "INSERT OR REPLACE INTO users (user_id, last_purchase) VALUES (?, ?)",
+        (user_id, today)
+    )
     conn.commit()
 
 def is_paid(user_id):
@@ -43,3 +45,7 @@ def add_payment(user_id, reference, amount, status):
         (user_id, reference, amount, status, today)
     )
     conn.commit()
+
+def get_all_users():
+    cursor.execute("SELECT user_id FROM users")
+    return [u[0] for u in cursor.fetchall()]
