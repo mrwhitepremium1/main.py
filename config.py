@@ -1,8 +1,14 @@
-import os
+API_ID = "YOUR_API_ID"
+API_HASH = "YOUR_API_HASH"
+BOT_TOKEN = "YOUR_BOT_TOKEN"
 
-BOT_TOKEN = os.environ.get("BOT_TOKEN")
-API_ID = os.environ.get("API_ID")
-API_HASH = os.environ.get("API_HASH")
-PAYSTACK_SECRET_KEY = os.environ.get("PAYSTACK_SECRET_KEY")
-TICKET_URL = os.environ.get("TICKET_URL")
-ADMIN_ID = int(os.environ.get("ADMIN_ID"))  # Your Telegram ID
+TICKET_URL = "https://github.com/mrwhitepremium1/main.py/raw/refs/heads/main/IMG_9460.png"
+
+# Paystack payment link
+PAYSTACK_PAYMENT_LINK = "https://paystack.shop/pay/victoryodds?metadata[user_id]={user_id}"
+
+# NOWPayments link
+NOWPAYMENTS_LINK = "https://nowpayments.io/payment/?iid=YOUR_NOWPAYMENTS_ID&source=button"
+
+# Admin Telegram ID
+ADMIN_ID = 123456789
