@@ -4,8 +4,8 @@ import requests
 from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from fastapi import FastAPI, Request
-import database  # Your database.py with mark_paid, add_payment, etc.
-import config    # Your config.py with API keys, URLs, product IDs
+import database  # Your database.py file
+import config    # Your config.py file
 
 # -----------------------
 # FastAPI App
@@ -31,10 +31,10 @@ bot = Client(
 # -----------------------
 @bot.on_message(filters.command("start"))
 async def start(client, message):
-    # Inline buttons for Paystack and NOWPayments
+    # Inline buttons for Paystack & NOWPayments
     keyboard = InlineKeyboardMarkup(
         [
-            [InlineKeyboardButton("💳 Pay with Paystack", url=config.PAYSTACK_PAYMENT_LINK)],
+            [InlineKeyboardButton("💳 Pay with Paystack ¢150", url=config.PAYSTACK_PAYMENT_LINK.format(user_id=message.from_user.id))],
             [InlineKeyboardButton("💰 Pay with Crypto", url=config.NOWPAYMENTS_LINK + f"&metadata[user_id]={message.from_user.id}")]
         ]
     )
@@ -54,7 +54,7 @@ async def start(client, message):
     await message.reply_photo(
         photo=config.TICKET_URL,
         caption=caption,
-        parse_mode="markdown",
+        parse_mode="md",  # ✅ Correct parse mode
         reply_markup=keyboard
     )
 
@@ -65,7 +65,7 @@ async def start(client, message):
 async def paystack_webhook(request: Request):
     data = await request.json()
     user_id = int(data["metadata"]["user_id"])
-    status = data["event"]  # Usually "charge.success" on Paystack
+    status = data["event"]
 
     if status == "charge.success":
         database.mark_paid(user_id)
