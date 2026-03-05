@@ -84,7 +84,7 @@ async def buy_button(client, callback_query):
     if res.get("status"):
         payment_link = res["data"]["authorization_url"]
         keyboard = InlineKeyboardMarkup(
-            [[InlineKeyboardButton("💳 Pay ¢150", url=payment_link)]]
+            [[InlineKeyboardButton("Mobile Money/ Debit Card", url=payment_link)]]
         )
         await callback_query.message.edit_text(
             "Click the button below to pay and get your ticket:",
