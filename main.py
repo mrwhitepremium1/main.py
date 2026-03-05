@@ -39,14 +39,14 @@ async def start(client, message):
     )
 
     caption = (
-        "🎉 WELCOME to Victory Odds Premium Tips Bot!\n\n"
-        "EVERY DAY, you can access a DAILY PREMIUM TICKET with exclusive tips.\n\n"
+        "🎉 WELCOME to Victory Odds Premium Ticket Bot!\n\n"
+        "You can access a DAILY PREMIUM TICKET with exclusive tips.\n\n"
         "💡 HOW TO USE:\n"
         "1️⃣ Click the button below to purchase today’s ticket\n"
         "2️⃣ Complete the payment securely via Paystack\n"
         "3️⃣ Receive your ticket instantly!\n\n"
         "📌 NOTE: Tickets are available once per day per user\n"
-        "⚡ Stay updated for daily premium tips and predictions!"
+        "⚡ Stay updated for daily premium ticket!"
     )
 
     await message.reply_photo(
