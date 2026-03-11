@@ -1,10 +1,13 @@
 import asyncio
-from fastapi import FastAPI, Request
 from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 import config
 
-app = FastAPI()
+# store users
+users = set()
+
+# daily ticket
+daily_ticket = None
 
 bot = Client(
     "ticket_bot",
@@ -13,83 +16,106 @@ bot = Client(
     bot_token=config.BOT_TOKEN
 )
 
-# -----------------------
 # START COMMAND
-# -----------------------
-
 @bot.on_message(filters.command("start"))
 async def start(client, message):
 
+    users.add(message.from_user.id)
+
     keyboard = InlineKeyboardMarkup(
         [
-            [InlineKeyboardButton("💳 Buy Ticket ¢150", url=config.SELAR_PAYMENT_LINK)]
+            [InlineKeyboardButton("💳 Buy Ticket GHS 150", url=config.SELAR_PAYMENT_LINK)],
+            [InlineKeyboardButton("📩 I Have Paid", callback_data="paid")]
         ]
     )
 
     caption = (
-        "🔥 **Welcome to Victory Odds Premium Bot!**\n\n"
-        "Today's premium ticket is available.\n\n"
-        "Click the button below to purchase today's ticket."
+        "🔥 Welcome to the Premium Betting Bot!\n\n"
+        "Daily VIP ticket available.\n\n"
+        "Click BUY TICKET to purchase today's ticket."
     )
 
     await message.reply_photo(
-        photo=config.TICKET_IMAGE,
+        photo=config.WELCOME_IMAGE,
         caption=caption,
         reply_markup=keyboard
     )
 
-# -----------------------
-# SELAR WEBHOOK
-# -----------------------
 
-@app.post("/selar-webhook")
-async def selar_webhook(request: Request):
+# USER CLAIM PAYMENT
+@bot.on_callback_query(filters.regex("paid"))
+async def paid(client, callback_query):
 
-    data = await request.json()
+    await callback_query.message.reply_text(
+        "✅ Payment received.\n\nAdmin will verify and send your ticket shortly."
+    )
 
-    # Example Selar payload
-    email = data.get("customer_email")
-    telegram_id = data.get("custom_fields", {}).get("telegram_id")
 
-    if telegram_id:
-        try:
-            await bot.send_photo(
-                chat_id=int(telegram_id),
-                photo=config.TICKET_IMAGE,
-                caption="✅ Payment received!\n\nHere is today's premium ticket 🎟"
-            )
-        except:
-            pass
+# ADMIN UPLOAD DAILY TICKET
+@bot.on_message(filters.photo & filters.user(config.ADMIN_ID))
+async def upload_ticket(client, message):
 
-    return {"status": "success"}
+    global daily_ticket
 
-# -----------------------
-# ADMIN BROADCAST
-# -----------------------
+    daily_ticket = message.photo.file_id
 
-users = set()
+    await message.reply_text("✅ Daily ticket updated successfully!")
 
+
+# ADMIN SEND TICKET TO USER
+@bot.on_message(filters.command("send") & filters.user(config.ADMIN_ID))
+async def send_ticket(client, message):
+
+    if not daily_ticket:
+        await message.reply_text("❌ No ticket uploaded today.")
+        return
+
+    if len(message.command) < 2:
+        await message.reply_text("Usage: /send USER_ID")
+        return
+
+    user_id = int(message.command[1])
+
+    await bot.send_photo(
+        user_id,
+        daily_ticket,
+        caption="🎟 Here is today's premium ticket!"
+    )
+
+    await message.reply_text("✅ Ticket sent.")
+
+
+# BROADCAST
 @bot.on_message(filters.command("broadcast") & filters.user(config.ADMIN_ID))
 async def broadcast(client, message):
 
     text = message.text.split(None, 1)[1]
 
+    sent = 0
+
     for user in users:
         try:
             await bot.send_message(user, text)
+            sent += 1
         except:
             pass
 
-    await message.reply_text("Broadcast sent.")
+    await message.reply_text(f"Broadcast sent to {sent} users")
 
-# -----------------------
-# BOT STARTUP
-# -----------------------
 
-@app.on_event("startup")
-async def startup():
+# STATS
+@bot.on_message(filters.command("stats") & filters.user(config.ADMIN_ID))
+async def stats(client, message):
+
+    await message.reply_text(f"Total users: {len(users)}")
+
+
+# RUN BOT
+async def main():
     await bot.start()
+    print("Bot is running...")
+    await asyncio.Event().wait()
 
-@app.on_event("shutdown")
-async def shutdown():
-    await bot.stop()
+
+if __name__ == "__main__":
+    asyncio.run(main())
