@@ -8,4 +8,4 @@ SELAR_PAYMENT_LINK = os.environ.get("SELAR_PAYMENT_LINK")
 
 # Daily Image Links from Railway Variables
 COVERED_TICKET_URL = os.environ.get("COVERED_TICKET_URL")
-TICKET_URL = os.environ.get("TICKET_
+TICKET_URL = os.environ.get("TICKET_URL")
