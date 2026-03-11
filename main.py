@@ -24,7 +24,6 @@ async def start(event):
         "⭐ **CONFIRMED TICKET** 🎫\n"
         "☑ **Fixed Tips:** Correct Score\n"
         "✔ **Safe:** 💯 Guaranteed\n\n"
-        "Welcome to Mr. White Official!\n\n"
         "To see today's full uncovered ticket, please pay via the link below and click 'Claim'."
     )
 
