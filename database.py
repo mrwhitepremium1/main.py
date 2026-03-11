@@ -25,7 +25,6 @@ def init_db():
     conn.commit()
     cur.close()
     conn.close()
-    print("✅ Database tables initialized successfully.")
 
 def approve_user_24h(user_id, name):
     conn = get_connection()
@@ -34,8 +33,7 @@ def approve_user_24h(user_id, name):
     cur.execute("""
         INSERT INTO approved_users (user_id, name, expiry_time)
         VALUES (%s, %s, %s)
-        ON CONFLICT (user_id) 
-        DO UPDATE SET expiry_time = EXCLUDED.expiry_time
+        ON CONFLICT (user_id) DO UPDATE SET expiry_time = EXCLUDED.expiry_time
     """, (user_id, name, expiry))
     conn.commit()
     cur.close()
