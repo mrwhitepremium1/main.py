@@ -7,6 +7,7 @@ def get_connection():
 
 def init_db():
     conn = get_connection(); cur = conn.cursor()
+    # Subscribers table for total user count and broadcasting
     cur.execute("""
         CREATE TABLE IF NOT EXISTS subscribers (
             user_id BIGINT PRIMARY KEY,
@@ -14,6 +15,7 @@ def init_db():
             joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
+    # Approved table for PAID users only - this is what /status checks
     cur.execute("""
         CREATE TABLE IF NOT EXISTS approved_users (
             user_id BIGINT PRIMARY KEY,
@@ -35,9 +37,12 @@ def approve_user_24h(user_id, name):
 
 def is_user_approved(user_id):
     conn = get_connection(); cur = conn.cursor()
+    # STRICT CHECK: Only looks at the approval list
     cur.execute("SELECT expiry_time FROM approved_users WHERE user_id = %s", (user_id,))
     result = cur.fetchone()
     cur.close(); conn.close()
+    
     if result is None:
         return False
+    # Verifies the 24-hour window hasn't closed
     return datetime.now() < result[0]
