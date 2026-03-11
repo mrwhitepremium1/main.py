@@ -21,7 +21,7 @@ async def start(event):
         conn.commit()
         cur.execute("SELECT COUNT(*) FROM subscribers")
         total = cur.fetchone()[0]
-        # Admin Alert
+        # Admin Notification
         await client.send_message(config.ADMIN_ID, f"👤 **New Visitor Alert!**\n\nName: {first_name}\nUsername: @{user.username}\n📈 Total Users: {total}")
     cur.close(); conn.close()
 
@@ -53,7 +53,7 @@ async def price(event):
         "🇬🇧 **GBP:** £20\n"
         "🇿🇲 **ZMW:** 300 ZMW\n"
         "💶 **CFA:** 10,000 XAF/XOF\n\n"
-        "✅ *Don't see your country? Click below:* "
+        "✅ *Don't see your currency? Click below:* "
     )
     buttons = [
         [Button.inline("❓ My country is not listed", data="not_listed")],
@@ -62,7 +62,38 @@ async def price(event):
     ]
     await event.reply(price_text, buttons=buttons)
 
-# --- 3. INFORMATION CALLBACKS ---
+# --- 3. UPDATED INFORMATION CALLBACKS ---
+
+@client.on(events.CallbackQuery(data="win_guarantee"))
+async def win_guarantee_handler(event):
+    await event.answer() # Clears loading spinner
+    # Exact wording from screenshot
+    guarantee_text = (
+        "🛡️ **Mr. White Win Guarantee**\n\n"
+        "We pride ourselves on delivering high-accuracy Correct Score selections. "
+        "Our team performs deep analysis on team form, injuries, and historical data to ensure a **95%+ success rate**.\n\n"
+        "• **Verified Results:** Every ticket is recorded and verified post-match.\n"
+        "• **Transparency:** We do not delete past results; we let our history speak for itself.\n"
+        "• **Risk Note:** While our accuracy is industry-leading, betting involves risk. We advise responsible play."
+    )
+    await event.reply(guarantee_text)
+
+@client.on(events.CallbackQuery(data="terms"))
+async def terms_handler(event):
+    await event.answer() # Clears loading spinner
+    # Exact wording from screenshot
+    terms_text = (
+        "⚖️ **Terms of Service**\n\n"
+        "By utilizing Mr. White Official Bot services, you agree to the following:\n\n"
+        "1. **Final Sale:** Due to the nature of digital information, all ticket purchases are final. "
+        "No refunds are issued after a ticket has been accessed.\n"
+        "2. **Verification:** Payment \"Claims\" are subject to manual admin verification. "
+        "Fraudulent claims will result in a permanent ban.\n"
+        "3. **Confidentiality:** Sharing or reselling purchased tickets is strictly prohibited "
+        "and will result in the immediate termination of access."
+    )
+    await event.reply(terms_text)
+
 @client.on(events.CallbackQuery(data="how_to_pay"))
 async def how_to_pay(event):
     await event.answer()
@@ -75,16 +106,6 @@ async def how_to_pay(event):
         "5️⃣ Wait for admin verification to receive your ticket."
     )
     await event.reply(guide)
-
-@client.on(events.CallbackQuery(data="win_guarantee"))
-async def win_guarantee(event):
-    await event.answer()
-    await event.reply("🛡️ **Win Guarantee**\n\nWe provide a 95%+ success rate based on professional data analysis. Our results are verified daily.")
-
-@client.on(events.CallbackQuery(data="terms"))
-async def terms(event):
-    await event.answer()
-    await event.reply("⚖️ **Terms of Service**\n\nAll sales are final once access is granted. No sharing of tickets allowed.")
 
 @client.on(events.CallbackQuery(data="not_listed"))
 async def not_listed(event):
