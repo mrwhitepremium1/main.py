@@ -1,4 +1,3 @@
-# Ticket image (can change daily)
 TICKET_IMAGE = os.environ.get("TICKET_URL")
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
