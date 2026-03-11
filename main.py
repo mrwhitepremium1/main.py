@@ -5,7 +5,6 @@ import config
 import database
 import os
 
-# Initialize Client
 client = TelegramClient('bot_session', config.API_ID, config.API_HASH)
 
 # --- 1. START COMMAND ---
@@ -14,6 +13,7 @@ async def start(event):
     user = await event.get_sender()
     first_name = user.first_name if user.first_name else "there"
     
+    # Database logic
     conn = database.get_connection(); cur = conn.cursor()
     cur.execute("SELECT user_id FROM subscribers WHERE user_id = %s", (user.id,))
     if not cur.fetchone():
@@ -30,6 +30,7 @@ async def start(event):
         [Button.inline("❓ How to Pay", data="how_to_pay"), Button.inline("✅ I Have Paid", data="claim_pay")]
     ]
     
+    # Using triple quotes to prevent SyntaxErrors
     welcome_text = f"""Hello 👋 {first_name}!
 
 **Welcome to Mr. White | Official Bot**
@@ -46,7 +47,7 @@ To see today's full ticket, please pay via the link and click 'Claim'."""
     
     await client.send_file(event.chat_id, config.COVERED_TICKET_URL, caption=welcome_text, buttons=buttons)
 
-# --- 2. CALLBACK HANDLERS ---
+# --- 2. THE CALLBACK HANDLERS (Triple Quotes Applied) ---
 
 @client.on(events.CallbackQuery(data="how_to_pay"))
 async def how_to_pay_handler(event):
@@ -57,7 +58,7 @@ async def how_to_pay_handler(event):
 2️⃣ Select your currency (USD, GHS, NGN, etc.) at the top of the page.
 3️⃣ Enter your Name and Email.
 4️⃣ Choose your payment method (Card or Mobile Money).
-5️⃣ Once payment is successful, return here and click **'I Have Paid (Claim)'**."""
+5️⃣ Once payment is successful, return here and click 'I Have Paid (Claim)'."""
     await event.reply(guide)
 
 @client.on(events.CallbackQuery(data="win_guarantee"))
@@ -84,49 +85,38 @@ By utilizing Mr. White Official Bot services, you agree to the following:
 3. **Confidentiality:** Sharing or reselling purchased tickets is strictly prohibited and will result in the immediate termination of access."""
     await event.reply(terms_text)
 
-# --- 3. PAYMENT CLAIM & ADMIN ---
+# --- 3. PRICE, SUPPORT, STATUS HANDLERS ---
+
+@client.on(events.NewMessage(pattern='/price'))
+async def price(event):
+    price_text = """🌍 **Official Price List**
+🇺🇸 **USD:** $20
+🇬🇭 **GHS:** 150
+🇳🇬 **NGN:** 20,000
+🇬🇧 **GBP:** £20
+🇰🇪 **KES:** 2,000
+🇿🇦 **ZAR:** 300
+🇿🇲 **ZMW:** 300
+
+✅ *Selar auto-converts to your local currency at checkout.*"""
+    await event.reply(price_text)
+
+@client.on(events.NewMessage(pattern='/support'))
+async def support(event):
+    await event.reply("👋 **Support:** Contact @Best_Admin24 for assistance.")
+
+@client.on(events.NewMessage(pattern='/status'))
+async def status(event):
+    await event.reply("📊 **Status:** No active 24h ticket found. Use /start to purchase.")
+
+# --- 4. ADMIN & STARTUP ---
+
 @client.on(events.CallbackQuery(data="claim_pay"))
 async def claim(event):
     await event.answer("✅ Request sent to Admin.", alert=True)
     user = await event.get_sender()
     btns = [[Button.inline("✅ Approve", data=f"app_{user.id}"), Button.inline("❌ Reject", data=f"rej_{user.id}")]]
     await client.send_message(config.ADMIN_ID, f"🚨 **New Claim!**\nUser: {user.first_name}\nID: `{user.id}`", buttons=btns)
-
-@client.on(events.CallbackQuery(pattern=r"(app|rej)_(\d+)"))
-async def admin_decision(event):
-    if event.sender_id != config.ADMIN_ID: return
-    await event.answer()
-    action, uid = event.data.decode().split('_')[0], int(event.data.decode().split('_')[1])
-    if action == "app":
-        database.approve_user_24h(uid, "User")
-        await client.send_file(uid, config.TICKET_URL, caption="✅ **Payment Verified!** Here is your ticket.")
-        await event.edit(f"✅ User {uid} Approved.")
-    else:
-        await client.send_message(uid, "❌ **Payment Rejected.** Contact @Best_Admin24.")
-        await event.edit(f"❌ User {uid} Rejected.")
-
-# --- 4. VICTORY & STARTUP ---
-@client.on(events.NewMessage(pattern='/victory'))
-async def victory_broadcast(event):
-    if event.sender_id != config.ADMIN_ID: return
-    details = event.text.replace('/victory', '').strip()
-    victory_msg = f"""🏆 **BOOOOM! MATCH WON!** 🏆
-
-✅ **Match:** {details if details else "Latest Selection"}
-📈 **Success Rate:** 95%+ Accuracy Maintained
-
-**Congratulations to all our winners!** 💰💰💰
-Type /start to secure the next ticket."""
-    
-    conn = database.get_connection(); cur = conn.cursor()
-    cur.execute("SELECT user_id FROM subscribers"); users = cur.fetchall()
-    cur.close(); conn.close()
-    for u in users:
-        try:
-            await client.send_message(u[0], victory_msg)
-            await asyncio.sleep(0.05)
-        except: continue
-    await event.reply("✅ Victory announced.")
 
 async def main():
     try:
