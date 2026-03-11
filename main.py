@@ -7,13 +7,12 @@ import os
 
 client = TelegramClient('bot_session', config.API_ID, config.API_HASH)
 
-# --- 1. START & PRICE COMMANDS (Standardized Pricing) ---
+# --- 1. START & STATUS ---
 @client.on(events.NewMessage(pattern='/start'))
 async def start(event):
     user = await event.get_sender()
-    first_name = user.first_name if user.first_name else "there"
+    first_name = user.first_name if user.first_name else "Winner"
     
-    # Ensure user is in subscribers
     conn = database.get_connection(); cur = conn.cursor()
     cur.execute("SELECT user_id FROM subscribers WHERE user_id = %s", (user.id,))
     if not cur.fetchone():
@@ -21,8 +20,9 @@ async def start(event):
         conn.commit()
     cur.close(); conn.close()
 
+    # Updated button text to refer users to Selar for pricing
     buttons = [
-        [Button.url("💳 Pay via Selar", config.SELAR_PAYMENT_LINK)],
+        [Button.url("💳 Check Price & Buy Ticket", config.SELAR_PAYMENT_LINK)],
         [Button.inline("🛡️ Win Guarantee", data="win_guarantee"), Button.inline("⚖️ Terms", data="terms")],
         [Button.inline("❓ How to Pay", data="how_to_pay"), Button.inline("✅ I Have Paid", data="claim_pay")]
     ]
@@ -37,28 +37,13 @@ async def start(event):
 ☑ **Fixed Tips:** Correct Score
 ✔ **Safe:** 💯 Guaranteed
 
-**Price:** $20 USD / 150 GHS / 20,000 NGN
-
-To see today's full ticket, please pay via the link and click 'Claim'."""
+To see today's full ticket, please check the price and buy your ticket via the link below, then click 'Claim'."""
     
     await client.send_file(event.chat_id, config.COVERED_TICKET_URL, caption=welcome_text, buttons=buttons)
 
-@client.on(events.NewMessage(pattern='/price'))
-async def price_cmd(event):
-    price_text = """🌍 **Mr. White Official Price List**
-*(Daily Access - Correct Score Ticket)*
-
-🇺🇸 **USD:** $20
-🇬🇭 **GHS:** 150 GHS
-🇳🇬 **NGN:** 20,000 NGN
-
-✅ **Pay here:** https://selar.co/mrwhite"""
-    await event.reply(price_text)
-
-# --- 2. STATUS CHECK (Fixed for Post-Purchase) ---
 @client.on(events.NewMessage(pattern='/status'))
 async def status_cmd(event):
-    # This now checks the database for actual 24h approval
+    # Checks database for 24h active purchase status
     if database.is_user_approved(event.sender_id):
         await event.reply("📊 **Status:** Your access is **ACTIVE**. You have full access to current tickets.")
     else:
@@ -68,40 +53,43 @@ async def status_cmd(event):
 async def support_cmd(event):
     await event.reply("👋 **Support:** Contact @Best_Admin24 for assistance.")
 
-# --- 3. AUTOMATED ASSISTANT (Fixed "Random Message") ---
-@client.on(events.NewMessage(incoming=True, func=lambda e: e.is_private))
-async def auto_reply(event):
-    # Only trigger if the message is NOT a command
-    if event.text.startswith('/') or event.sender_id == config.ADMIN_ID:
-        return
+# --- 2. INFORMATION BUTTONS ---
 
-    assistant_buttons = [
-        [Button.inline("🎫 View Ticket", data="trigger_start")],
-        [Button.inline("💰 Price List", data="trigger_price")]
-    ]
-    await event.reply("🤖 **Mr. White Assistant:** How can I help you today?", buttons=assistant_buttons)
+@client.on(events.CallbackQuery(data="win_guarantee"))
+async def win_guarantee_handler(event):
+    await event.answer() 
+    text = """🛡️ **Mr. White Win Guarantee**
 
-# Callback handlers for the automated assistant buttons
-@client.on(events.CallbackQuery(data="trigger_start"))
-async def cb_start(event):
+We pride ourselves on delivering high-accuracy Correct Score selections.
+
+• **Verified Results:** Every ticket is recorded and verified post-match.
+• **Transparency:** We do not delete past results.
+• **Risk Note:** Betting involves risk. We advise responsible play."""
+    await event.reply(text)
+
+@client.on(events.CallbackQuery(data="terms"))
+async def terms_handler(event):
     await event.answer()
-    await start(event)
+    text = """⚖️ **Terms of Service**
 
-@client.on(events.CallbackQuery(data="trigger_price"))
-async def cb_price(event):
-    await event.answer()
-    await price_cmd(event)
+By utilizing Mr. White Official Bot services, you agree to the following:
 
-# --- 4. ADMIN & CALLBACK HANDLERS ---
+1. **Final Sale:** All ticket purchases are final.
+2. **Verification:** Claims are subject to manual admin verification.
+3. **Confidentiality:** Sharing or reselling tickets is strictly prohibited."""
+    await event.reply(text)
+
 @client.on(events.CallbackQuery(data="how_to_pay"))
-async def how_to_pay(event):
+async def how_to_pay_handler(event):
     await event.answer()
     guide = """📖 **How to Pay Guide**
-1️⃣ Click the **Pay via Selar** link.
-2️⃣ Select your currency (USD, GHS, NGN) at the top.
-3️⃣ Pay via Card or Mobile Money.
-4️⃣ Return here and click **'I Have Paid (Claim)'**."""
+1️⃣ Click the **Check Price & Buy Ticket** link.
+2️⃣ Select your currency at the top of the page.
+3️⃣ Enter your details and pay.
+4️⃣ Return here and click 'I Have Paid (Claim)'."""
     await event.reply(guide)
+
+# --- 3. ADMIN ACTIONS ---
 
 @client.on(events.CallbackQuery(data="claim_pay"))
 async def claim(event):
@@ -120,18 +108,25 @@ async def admin_decision(event):
     
     if action == "app":
         database.approve_user_24h(uid, "User")
-        await client.send_file(uid, config.TICKET_URL, caption="✅ **Payment Verified**\n\nYour ticket has been successfully issued and is valid for 24 hours.")
+        success_msg = """✅ **Payment Verified**
+
+Your ticket has been successfully issued and is valid for 24 hours.
+For any issues or inquiries, /support"""
+        await client.send_file(uid, config.TICKET_URL, caption=success_msg)
         await event.edit(f"✅ User {uid} Approved.")
     else:
-        await client.send_message(uid, "❌ **Payment Claim Rejected**\n\nYour payment could not be verified. Contact @Best_Admin24.")
+        reject_msg = """❌ **Payment Claim Rejected**
+
+Your payment could not be verified. Please check your details or contact @Best_Admin24."""
+        await client.send_message(uid, reject_msg)
         await event.edit(f"❌ User {uid} Rejected.")
 
-# --- 5. STARTUP ---
+# --- 4. STARTUP ---
 async def main():
     try:
         await client.start(bot_token=config.BOT_TOKEN)
         database.init_db()
-        print("✅ Bot fully updated and online.")
+        print("✅ Bot is online.")
         await client.run_until_disconnected()
     except FloodWaitError as e:
         await asyncio.sleep(e.seconds); await main()
