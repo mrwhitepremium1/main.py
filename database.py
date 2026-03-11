@@ -35,8 +35,18 @@ def approve_user_24h(user_id, name):
 
 def is_user_approved(user_id):
     conn = get_connection(); cur = conn.cursor()
+    # Specifically look for this user's expiry time
     cur.execute("SELECT expiry_time FROM approved_users WHERE user_id = %s", (user_id,))
     result = cur.fetchone()
     cur.close(); conn.close()
-    # Returns True only if user is found AND time has not expired
-    return result is not None and datetime.now() < result[0]
+    
+    # If no record exists, they are NOT approved
+    if result is None:
+        return False
+        
+    # If record exists, check if it has expired
+    expiry_time = result[0]
+    if datetime.now() < expiry_time:
+        return True
+        
+    return False
