@@ -1,51 +1,46 @@
-import sqlite3
-from datetime import date
+import psycopg2
+import os
 
-conn = sqlite3.connect("bot.db", check_same_thread=False)
-cursor = conn.cursor()
+DATABASE_URL = os.environ.get("DATABASE_URL")
 
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS users (
-    user_id INTEGER PRIMARY KEY,
-    last_purchase DATE
-)
-""")
+def get_connection():
+    return psycopg2.connect(DATABASE_URL)
 
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS payments (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER,
-    reference TEXT,
-    amount INTEGER,
-    status TEXT,
-    created_at DATE
-)
-""")
-conn.commit()
-
-def mark_paid(user_id):
-    today = date.today()
-    cursor.execute(
-        "INSERT OR REPLACE INTO users (user_id, last_purchase) VALUES (?, ?)",
-        (user_id, today)
-    )
+def init_db():
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS subscribers (
+            user_id BIGINT PRIMARY KEY,
+            username TEXT,
+            status TEXT DEFAULT 'pending'
+        )
+    """)
     conn.commit()
+    cur.close()
+    conn.close()
 
-def is_paid(user_id):
-    cursor.execute("SELECT last_purchase FROM users WHERE user_id=?", (user_id,))
-    row = cursor.fetchone()
-    if not row:
-        return False
-    return row[0] == str(date.today())
-
-def add_payment(user_id, reference, amount, status):
-    today = date.today()
-    cursor.execute(
-        "INSERT INTO payments (user_id, reference, amount, status, created_at) VALUES (?, ?, ?, ?, ?)",
-        (user_id, reference, amount, status, today)
-    )
+def add_subscriber(user_id, username):
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("INSERT INTO subscribers (user_id, username) VALUES (%s, %s) ON CONFLICT DO NOTHING", (user_id, username))
     conn.commit()
+    cur.close()
+    conn.close()
 
-def get_all_users():
-    cursor.execute("SELECT user_id FROM users")
-    return [u[0] for u in cursor.fetchall()]
+def update_status(user_id, status):
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("UPDATE subscribers SET status = %s WHERE user_id = %s", (status, user_id))
+    conn.commit()
+    cur.close()
+    conn.close()
+
+def get_all_active_users():
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT user_id FROM subscribers WHERE status = 'active'")
+    users = [row[0] for row in cur.fetchall()]
+    cur.close()
+    conn.close()
+    return users
