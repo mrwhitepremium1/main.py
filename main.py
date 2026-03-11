@@ -13,27 +13,17 @@ async def start(event):
     user = await event.get_sender()
     first_name = user.first_name if user.first_name else "Winner"
     
-    conn = database.get_connection()
-    cur = conn.cursor()
-    
-    # Check if user is in database
+    conn = database.get_connection(); cur = conn.cursor()
     cur.execute("SELECT user_id FROM subscribers WHERE user_id = %s", (user.id,))
     if not cur.fetchone():
-        # New user found!
         cur.execute("INSERT INTO subscribers (user_id, username) VALUES (%s, %s)", (user.id, user.username))
         conn.commit()
-        
-        # Count total users
         cur.execute("SELECT COUNT(*) FROM subscribers")
         total = cur.fetchone()[0]
         
-        # ALERT ADMIN IMMEDIATELY
-        try:
-            alert = f"👤 **New Visitor Alert!**\nName: {first_name}\nID: `{user.id}`\nTotal Users: {total}"
-            await client.send_message(config.ADMIN_ID, alert)
-        except Exception as e:
-            print(f"Alert failed: {e}")
-
+        # Admin Alert
+        await client.send_message(config.ADMIN_ID, f"👤 **New Visitor Alert!**\nName: {first_name}\nID: `{user.id}`\nTotal Users: {total}")
+    
     cur.close(); conn.close()
 
     buttons = [
@@ -42,24 +32,11 @@ async def start(event):
         [Button.inline("❓ How to Pay", data="how_to_pay"), Button.inline("✅ I Have Paid", data="claim_pay")]
     ]
     
-    welcome = f"""Hello 👋 {first_name}!
-**Welcome to Mr. White | Official Bot**
+    await client.send_file(event.chat_id, config.COVERED_TICKET_URL, caption=f"Hello 👋 {first_name}!\n\nTo see today's ticket, check the price via the link below and click 'Claim'.", buttons=buttons)
 
-⭐ **CONFIRMED TICKET** 🎫
-To see today's ticket, check the price via the link below, then click 'Claim'."""
-    
-    await client.send_file(event.chat_id, config.COVERED_TICKET_URL, caption=welcome, buttons=buttons)
-
-# --- 2. COMMANDS: STATUS & BROADCAST ---
-@client.on(events.NewMessage(pattern='/status'))
-async def status_cmd(event):
-    if database.is_user_approved(event.sender_id):
-        await event.reply("📊 **Status: ACTIVE** ✅")
-    else:
-        await event.reply("📊 **Status: INACTIVE** ❌")
-
+# --- 2. BROADCAST & RANDOM MESSAGE ---
 @client.on(events.NewMessage(pattern='/broadcast'))
-async def broadcast_cmd(event):
+async def broadcast(event):
     if event.sender_id != config.ADMIN_ID: return
     msg = event.text.replace('/broadcast', '').strip()
     if not msg: return await event.reply("Usage: /broadcast [message]")
@@ -75,14 +52,32 @@ async def broadcast_cmd(event):
         except: continue
     await event.reply("✅ Broadcast Finished.")
 
-# --- 3. CALLBACKS: GUARANTEE / TERMS / ADMIN ---
+@client.on(events.NewMessage(incoming=True, func=lambda e: e.is_private))
+async def assistant(event):
+    if event.text.startswith('/') or event.sender_id == config.ADMIN_ID: return
+    await event.reply("🤖 **Assistant:** Need help? Click below to see today's ticket info.", buttons=[[Button.inline("🎫 View Ticket", data="trigger_start")]])
+
+@client.on(events.CallbackQuery(data="trigger_start"))
+async def cb_start(event):
+    await event.answer(); await start(event)
+
+# --- 3. STATUS, SUPPORT & CALLBACKS ---
+@client.on(events.NewMessage(pattern='/status'))
+async def status(event):
+    active = database.is_user_approved(event.sender_id)
+    await event.reply(f"📊 **Status:** {'ACTIVE ✅' if active else 'INACTIVE ❌'}")
+
+@client.on(events.NewMessage(pattern='/support'))
+async def support(event):
+    await event.reply("👋 **Support:** Contact @Best_Admin24.")
+
 @client.on(events.CallbackQuery(data="win_guarantee"))
 async def wg(event):
     await event.answer(); await event.reply("🛡️ 95%+ Accuracy Guaranteed.")
 
 @client.on(events.CallbackQuery(data="terms"))
 async def tr(event):
-    await event.answer(); await event.reply("⚖️ No reselling. All sales final.")
+    await event.answer(); await event.reply("⚖️ Sales final. No reselling.")
 
 @client.on(events.CallbackQuery(data="how_to_pay"))
 async def htp(event):
@@ -108,14 +103,11 @@ async def admin_decision(event):
         await client.send_message(uid, "❌ **Rejected.** Contact support.")
         await event.edit(f"❌ Rejected {uid}")
 
-# --- 4. STARTUP ---
 async def main():
     try:
         await client.start(bot_token=config.BOT_TOKEN)
         database.init_db()
-        # STARTUP ALERT: Let's you know the bot is finally running
-        await client.send_message(config.ADMIN_ID, "🚀 **Bot is Online & Database Connected!**")
-        print("Bot is Online")
+        await client.send_message(config.ADMIN_ID, "🚀 **Bot Online!**")
         await client.run_until_disconnected()
     except FloodWaitError as e:
         await asyncio.sleep(e.seconds); await main()
