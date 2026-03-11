@@ -1,33 +1,37 @@
-import asyncio
 from telethon import TelegramClient, events, Button
 import config
 import database
 
 client = TelegramClient('bot_session', config.API_ID, config.API_HASH).start(bot_token=config.BOT_TOKEN)
-
-# --- NEW: BACKGROUND TASK FOR EXPIRY ---
-async def expiry_checker():
-    while True:
-        expired_users = database.remove_expired_users()
-        for user_id in expired_users:
-            try:
-                await client.send_message(user_id, "⏰ **Your 24-hour access has expired.**\nPlease pay again to get today's ticket!")
-            except:
-                pass
-        await asyncio.sleep(1800) # Check every 30 minutes
-
-# --- ADMIN: APPROVAL (Updated to use 24h logic) ---
-@client.on(events.CallbackQuery(pattern=r"approve_(.*)"))
-async def approve_logic(event):
-    if event.sender_id != config.ADMIN_ID: return
-    user_id = int(event.data.decode().split("_")[1])
-    
-    database.approve_user_24h(user_id) # Set 24h timer
-    await client.send_file(user_id, config.TICKET_IMAGE, caption="✅ **Verified!** You have 24 hours of access.")
-    await event.edit(f"User {user_id} approved for 24 hours.")
-
-# --- MAIN RUN ---
 database.init_db()
-client.loop.create_task(expiry_checker()) # Start the clock
-print("Bot is live with 24h Expiry System...")
+
+@client.on(events.NewMessage(pattern='/start'))
+async def start(event):
+    buttons = [
+        [Button.url("💳 Pay via Selar", config.SELAR_PAYMENT_LINK)],
+        [Button.inline("✅ I Have Paid (Claim)", data="claim_pay")]
+    ]
+    await client.send_file(event.chat_id, config.WELCOME_IMAGE, caption="**Welcome!**\n\nPay and then click 'Claim'.", buttons=buttons)
+
+@client.on(events.CallbackQuery(data=b"claim_pay"))
+async def handle_claim(event):
+    user = await event.get_sender()
+    admin_buttons = [[Button.inline("✅ Approve", data=f"app_{user.id}"), Button.inline("❌ Reject", data=f"rej_{user.id}")]]
+    await client.send_message(config.ADMIN_ID, f"🚨 **New Claim!**\nUser: {user.first_name}\nID: `{user.id}`", buttons=admin_buttons)
+    await event.edit("Sent to Admin. Please wait...")
+
+@client.on(events.CallbackQuery(pattern=r"(app|rej)_(.*)"))
+async def admin_decision(event):
+    if event.sender_id != config.ADMIN_ID: return
+    action, uid = event.data.decode().split("_")
+    uid = int(uid)
+
+    if action == "app":
+        database.approve_user_24h(uid, "User")
+        await client.send_file(uid, config.TICKET_IMAGE, caption="✅ **Verified!** Here is today's ticket.")
+        await event.edit(f"✅ Approved {uid}. Ticket sent.")
+    else:
+        await client.send_message(uid, "❌ Rejected.")
+        await event.edit(f"❌ Rejected {uid}.")
+
 client.run_until_disconnected()
