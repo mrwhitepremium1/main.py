@@ -8,7 +8,6 @@ def get_connection():
 def init_db():
     conn = get_connection()
     cur = conn.cursor()
-    # Table for Visitor Alerts & Broadcasts
     cur.execute("""
         CREATE TABLE IF NOT EXISTS subscribers (
             user_id BIGINT PRIMARY KEY,
@@ -16,7 +15,6 @@ def init_db():
             joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
-    # Table for 24-hour Ticket Access
     cur.execute("""
         CREATE TABLE IF NOT EXISTS approved_users (
             user_id BIGINT PRIMARY KEY,
