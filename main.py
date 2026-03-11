@@ -20,7 +20,7 @@ async def start(event):
         conn.commit()
         cur.execute("SELECT COUNT(*) FROM subscribers")
         total = cur.fetchone()[0]
-        await client.send_message(config.ADMIN_ID, f"👤 **New Visitor!**\nName: {first_name}\nID: {user.id}\nTotal: {total}")
+        await client.send_message(config.ADMIN_ID, f"👤 **New Visitor Alert!**\nName: {first_name}\nID: `{user.id}`\nTotal: {total}")
     cur.close(); conn.close()
 
     buttons = [
@@ -45,7 +45,7 @@ To see today's full ticket, please pay via the link and click 'Claim'."""
     
     await client.send_file(event.chat_id, config.COVERED_TICKET_URL, caption=welcome_text, buttons=buttons)
 
-# --- 2. INFORMATION HANDLERS (How to Pay, Terms, Guarantee) ---
+# --- 2. INFORMATION HANDLERS ---
 
 @client.on(events.CallbackQuery(data="how_to_pay"))
 async def how_to_pay_handler(event):
@@ -78,18 +78,17 @@ async def terms_handler(event):
 
 By utilizing Mr. White Official Bot services, you agree to the following:
 
-1. **Final Sale:** Due to the nature of digital information, all ticket purchases are final.
-2. **Verification:** Payment "Claims" are subject to manual admin verification.
+1. **Final Sale:** Due to the nature of digital information, all ticket purchases are final. No refunds are issued after a ticket has been accessed.
+2. **Verification:** Payment "Claims" are subject to manual admin verification. Fraudulent claims will result in a permanent ban.
 3. **Confidentiality:** Sharing or reselling purchased tickets is strictly prohibited."""
     await event.reply(text)
 
-# --- 3. ADMIN BUTTONS (Approve / Reject) ---
+# --- 3. ADMIN DECISION HANDLERS (FIXED) ---
 
 @client.on(events.CallbackQuery(data="claim_pay"))
 async def claim(event):
     await event.answer("✅ Request sent to Admin.", alert=True)
     user = await event.get_sender()
-    # Admin gets buttons to Approve or Reject
     btns = [[Button.inline("✅ Approve", data=f"app_{user.id}"), 
              Button.inline("❌ Reject", data=f"rej_{user.id}")]]
     await client.send_message(config.ADMIN_ID, f"🚨 **New Claim!**\nUser: {user.first_name}\nID: `{user.id}`", buttons=btns)
@@ -103,32 +102,39 @@ async def admin_decision(event):
     
     if action == "app":
         database.approve_user_24h(uid, "User")
-        await client.send_file(uid, config.TICKET_URL, caption="✅ **Payment Verified!** Your ticket is below.")
+        success_msg = """✅ **Payment Verified**
+
+Your ticket has been successfully issued and is valid for 24 hours.
+For any issues or inquiries, /support"""
+        await client.send_file(uid, config.TICKET_URL, caption=success_msg)
         await event.edit(f"✅ User {uid} Approved.")
     else:
-        await client.send_message(uid, "❌ **Payment Rejected.** Contact @Best_Admin24.")
+        reject_msg = """❌ **Payment Claim Rejected**
+
+Your payment could not be verified. Please check your payment details and try again or contact @Best_Admin24 for assistance."""
+        await client.send_message(uid, reject_msg)
         await event.edit(f"❌ User {uid} Rejected.")
 
-# --- 4. BROADCAST COMMAND ---
+# --- 4. BROADCAST COMMAND (FIXED) ---
 
 @client.on(events.NewMessage(pattern='/broadcast'))
 async def broadcast(event):
     if event.sender_id != config.ADMIN_ID: return
     msg_text = event.text.replace('/broadcast', '').strip()
-    if not msg_text: return await event.reply("❌ Usage: `/broadcast [your message]`")
+    if not msg_text: return await event.reply("❌ Usage: `/broadcast [message]`")
     
     conn = database.get_connection(); cur = conn.cursor()
     cur.execute("SELECT user_id FROM subscribers"); users = cur.fetchall()
     cur.close(); conn.close()
     
-    sent = 0
+    sent_count = 0
     for u in users:
         try:
             await client.send_message(u[0], msg_text)
-            sent += 1
-            await asyncio.sleep(0.05)
+            sent_count += 1
+            await asyncio.sleep(0.05) # Rate limiting
         except: continue
-    await event.reply(f"✅ Broadcast sent to {sent} users.")
+    await event.reply(f"✅ Broadcast sent to {sent_count} users.")
 
 # --- 5. STARTUP ---
 
@@ -139,6 +145,7 @@ async def main():
         print("✅ Bot is online!")
         await client.run_until_disconnected()
     except FloodWaitError as e:
+        print(f"⚠️ FloodWait: Waiting {e.seconds}s...")
         await asyncio.sleep(e.seconds); await main()
 
 if __name__ == '__main__':
