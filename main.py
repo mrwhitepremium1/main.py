@@ -43,22 +43,17 @@ async def start(event):
     user = await event.get_sender()
     first_name = user.first_name if user.first_name else "there"
     
-    # Save user to DB and check if they are new
     conn = database.get_connection()
     cur = conn.cursor()
     cur.execute("SELECT user_id FROM subscribers WHERE user_id = %s", (user.id,))
     existing_user = cur.fetchone()
     
     if not existing_user:
-        # Add new user to DB
         cur.execute("INSERT INTO subscribers (user_id, username) VALUES (%s, %s)", (user.id, user.username))
         conn.commit()
-        
-        # Count total users for the alert
         cur.execute("SELECT COUNT(*) FROM subscribers")
         total_users = cur.fetchone()[0]
         
-        # Notify Admin of NEW visitor
         visitor_alert = (
             "👤 **New Visitor Alert!**\n\n"
             f"**Name:** {first_name}\n"
@@ -114,7 +109,13 @@ async def admin_decision(event):
         await client.send_file(uid, config.TICKET_URL, caption=success_caption)
         await event.edit(f"✅ User {uid} Approved.")
     else:
-        await client.send_message(uid, "❌ Your payment claim was rejected.")
+        # Your specific Rejection Message
+        reject_text = (
+            "❌ **Payment Claim Rejected**\n\n"
+            "Your payment could not be verified. Please check your payment details "
+            "and try again or contact @Best_Admin24 for assistance."
+        )
+        await client.send_message(uid, reject_text)
         await event.edit(f"❌ User {uid} Rejected.")
 
 print("Bot is running...")
