@@ -11,6 +11,3 @@ SELAR_PAYMENT_LINK = "https://selar.com/4w57915757"
 
 # Ticket image (can change daily)
 TICKET_IMAGE = os.environ.get("TICKET_URL")
-
-# Selar webhook secret
-SELAR_SECRET = "YOUR_SELAR_WEBHOOK_SECRET"
