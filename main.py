@@ -1,128 +1,73 @@
-import asyncio
-from pyrogram import Client, filters
-from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from telethon import TelegramClient, events, Button
 import config
+import database
 
-users = set()
-daily_ticket = None
+client = TelegramClient('bot_session', config.API_ID, config.API_HASH).start(bot_token=config.BOT_TOKEN)
+database.init_db()
 
-bot = Client(
-    "premium_ticket_bot",
-    api_id=int(config.API_ID),
-    api_hash=config.API_HASH,
-    bot_token=config.BOT_TOKEN
-)
-
-# START
-@bot.on_message(filters.command("start"))
-async def start(client, message):
-
-    users.add(message.from_user.id)
-
-    keyboard = InlineKeyboardMarkup(
-        [
-            [InlineKeyboardButton("💳 Buy Ticket GHS 150", url=config.SELAR_PAYMENT_LINK)],
-            [InlineKeyboardButton("✅ I Have Paid", callback_data="paid")]
-        ]
+# --- 1. USER: START COMMAND ---
+@client.on(events.NewMessage(pattern='/start'))
+async def start(event):
+    buttons = [
+        [Button.url("💳 Pay via Selar", config.SELAR_PAYMENT_LINK)],
+        [Button.inline("✅ I Have Paid (Claim)", data="claim_pay")]
+    ]
+    await client.send_file(
+        event.chat_id, 
+        config.WELCOME_IMAGE, 
+        caption="**Welcome!**\n\nPay via the link above and click 'Claim' to get your ticket.",
+        buttons=buttons
     )
 
-    text = (
-        "🔥 *Welcome to Premium Betting Bot*\n\n"
-        "Get today's VIP betting ticket.\n\n"
-        "1️⃣ Click BUY TICKET\n"
-        "2️⃣ Complete payment\n"
-        "3️⃣ Click I HAVE PAID\n\n"
-        "Admin will verify and send ticket."
-    )
-
-    await message.reply_photo(
-        photo=config.WELCOME_IMAGE,
-        caption=text,
-        reply_markup=keyboard
-    )
-
-# USER CLAIM PAYMENT
-@bot.on_callback_query(filters.regex("paid"))
-async def claim_payment(client, query):
-
-    user = query.from_user
-
-    keyboard = InlineKeyboardMarkup(
-        [
-            [
-                InlineKeyboardButton("✅ Approve", callback_data=f"approve_{user.id}")
-            ]
-        ]
-    )
-
-    await bot.send_message(
+# --- 2. USER: CLAIM BUTTON ---
+@client.on(events.CallbackQuery(data=b"claim_pay"))
+async def handle_claim(event):
+    user = await event.get_sender()
+    database.add_subscriber(user.id, user.username)
+    
+    # Notify Admin
+    admin_buttons = [
+        [Button.inline("✅ Approve", data=f"approve_{user.id}"),
+         Button.inline("❌ Reject", data=f"reject_{user.id}")]
+    ]
+    await client.send_message(
         config.ADMIN_ID,
-        f"💰 Payment Claim\n\nUser: {user.mention}\nID: {user.id}",
-        reply_markup=keyboard
+        f"🚨 **New Payment Claim!**\nUser: {user.first_name}\nID: `{user.id}`",
+        buttons=admin_buttons
     )
+    await event.edit("Verification request sent to Admin. Please wait...")
 
-    await query.message.reply_text(
-        "⏳ Payment request sent to admin.\n\nPlease wait for approval."
-    )
+# --- 3. ADMIN: APPROVAL LOGIC ---
+@client.on(events.CallbackQuery(pattern=r"(approve|reject)_(.*)"))
+async def admin_decision(event):
+    if event.sender_id != config.ADMIN_ID: return
+    
+    decision, user_id = event.data.decode().split("_")
+    user_id = int(user_id)
 
-# ADMIN APPROVE PAYMENT
-@bot.on_callback_query(filters.regex("approve_"))
-async def approve_payment(client, query):
+    if decision == "approve":
+        database.update_status(user_id, 'active')
+        await client.send_file(user_id, config.TICKET_IMAGE, caption="✅ **Payment Verified!** Here is today's ticket.")
+        await event.edit(f"Approved user `{user_id}` and ticket sent.")
+    else:
+        await client.send_message(user_id, "❌ Your payment claim was rejected.")
+        await event.edit(f"Rejected user `{user_id}`.")
 
-    global daily_ticket
-
-    user_id = int(query.data.split("_")[1])
-
-    if not daily_ticket:
-        await query.message.reply_text("❌ No ticket uploaded today.")
-        return
-
-    await bot.send_photo(
-        user_id,
-        daily_ticket,
-        caption="🎟 Here is today's premium ticket!"
-    )
-
-    await query.message.edit_text("✅ Ticket sent to user.")
-
-# ADMIN UPLOAD DAILY TICKET
-@bot.on_message(filters.photo & filters.user(config.ADMIN_ID))
-async def upload_ticket(client, message):
-
-    global daily_ticket
-
-    daily_ticket = message.photo.file_id
-
-    await message.reply_text("✅ Daily ticket updated!")
-
-# BROADCAST
-@bot.on_message(filters.command("broadcast") & filters.user(config.ADMIN_ID))
-async def broadcast(client, message):
-
-    text = message.text.split(None, 1)[1]
-
-    sent = 0
-
-    for user in users:
+# --- 4. ADMIN: BROADCAST SYSTEM ---
+@client.on(events.NewMessage(pattern='/broadcast'))
+async def broadcast(event):
+    if event.sender_id != config.ADMIN_ID: return
+    
+    users = database.get_all_active_users()
+    count = 0
+    await event.respond(f"Starting broadcast to {len(users)} users...")
+    
+    for uid in users:
         try:
-            await bot.send_message(user, text)
-            sent += 1
-        except:
-            pass
+            await client.send_file(uid, config.TICKET_IMAGE, caption="📢 **New Ticket Update!**")
+            count += 1
+        except: continue
+        
+    await event.respond(f"✅ Broadcast finished. Sent to {count} users.")
 
-    await message.reply_text(f"Broadcast sent to {sent} users.")
-
-# STATS
-@bot.on_message(filters.command("stats") & filters.user(config.ADMIN_ID))
-async def stats(client, message):
-
-    await message.reply_text(f"Total users: {len(users)}")
-
-# RUN
-async def main():
-    await bot.start()
-    print("Bot Running...")
-    await asyncio.Event().wait()
-
-if __name__ == "__main__":
-    asyncio.run(main())
+client.run_until_disconnected()
