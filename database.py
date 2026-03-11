@@ -1,6 +1,6 @@
 import psycopg2
 import os
-from datetime import datetime, timedelta
+from datetime import datetime
 
 def get_connection():
     return psycopg2.connect(os.environ.get("DATABASE_URL"))
@@ -25,6 +25,7 @@ def init_db():
 
 def approve_user_24h(user_id, name):
     conn = get_connection(); cur = conn.cursor()
+    from datetime import timedelta
     expiry = datetime.now() + timedelta(hours=24)
     cur.execute("""
         INSERT INTO approved_users (user_id, name, expiry_time)
@@ -35,18 +36,18 @@ def approve_user_24h(user_id, name):
 
 def is_user_approved(user_id):
     conn = get_connection(); cur = conn.cursor()
-    # Specifically look for this user's expiry time
+    # WE ONLY CHECK THE APPROVED_USERS TABLE
     cur.execute("SELECT expiry_time FROM approved_users WHERE user_id = %s", (user_id,))
     result = cur.fetchone()
     cur.close(); conn.close()
     
-    # If no record exists, they are NOT approved
+    # If the user is NOT in this table, they are INACTIVE
     if result is None:
         return False
         
-    # If record exists, check if it has expired
+    # If they are in the table, check if the 24 hours have passed
     expiry_time = result[0]
     if datetime.now() < expiry_time:
         return True
-        
+    
     return False
