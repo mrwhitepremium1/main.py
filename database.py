@@ -7,8 +7,6 @@ def get_connection():
 
 def init_db():
     conn = get_connection(); cur = conn.cursor()
-    # If status is still wrong, uncomment the next line for ONE deploy to wipe old data:
-    # cur.execute("DROP TABLE IF EXISTS approved_users") 
     cur.execute("""
         CREATE TABLE IF NOT EXISTS subscribers (
             user_id BIGINT PRIMARY KEY,
@@ -37,11 +35,9 @@ def approve_user_24h(user_id, name):
 
 def is_user_approved(user_id):
     conn = get_connection(); cur = conn.cursor()
-    # STRICT: If they are not in this table, they are INACTIVE
     cur.execute("SELECT expiry_time FROM approved_users WHERE user_id = %s", (user_id,))
     result = cur.fetchone()
     cur.close(); conn.close()
-    
     if result is None:
         return False
     return datetime.now() < result[0]
