@@ -5,10 +5,11 @@ import asyncio
 import config
 import database
 
+# Fixes the "Starting Container" hang by showing real logs
 logging.basicConfig(level=logging.INFO)
-client = TelegramClient('mr_white_final_v5', config.API_ID, config.API_HASH)
+client = TelegramClient('mr_white_production_v8', config.API_ID, config.API_HASH)
 
-# --- 1. START & USER ALERT ---
+# --- 1. WELCOME & NEW USER ALERT ---
 @client.on(events.NewMessage(pattern='/start'))
 async def start(event):
     user = await event.get_sender()
@@ -21,6 +22,7 @@ async def start(event):
         conn.commit()
         cur.execute("SELECT COUNT(*) FROM subscribers")
         total = cur.fetchone()[0]
+        # Admin Alert
         await client.send_message(config.ADMIN_ID, f"👤 **New Visitor Alert!**\nName: {first_name}\nID: `{user.id}`\nTotal Users: {total}")
     cur.close(); conn.close()
 
@@ -29,8 +31,20 @@ async def start(event):
         [Button.inline("🛡️ Win Guarantee", data="win_guarantee"), Button.inline("⚖️ Terms", data="terms")],
         [Button.inline("✅ I Have Paid", data="claim_pay")]
     ]
-    welcome = f"Hello 👋 {first_name}!\n\n**Welcome to Mr. White | Official Bot**\n\n⭐ **CONFIRMED TICKET** 🎫\nTo see today's ticket, check the price via the link below and click 'I Have Paid'."
-    await client.send_file(event.chat_id, config.COVERED_TICKET_URL, caption=welcome, buttons=buttons)
+    
+    welcome_text = f"""Hello 👋 {first_name}!
+
+**Welcome to Mr. White | Official Bot**
+━━━━━━━━━━━━━━━━━━━━
+💎 **PREMIUM INFO ARRIVED**
+⭐ **CONFIRMED TICKET** 🎫
+
+☑ **Fixed Tips:** Correct Score
+✔ **Verification:** 100% Guaranteed
+
+To access today's confirmed selections, please check the price via the link below and click **'I Have Paid'**."""
+
+    await client.send_file(event.chat_id, config.COVERED_TICKET_URL, caption=welcome_text, buttons=buttons)
 
 # --- 2. COMMANDS: STATUS, SUPPORT, BROADCAST ---
 @client.on(events.NewMessage(pattern='/status'))
@@ -42,7 +56,6 @@ async def status_cmd(event):
 
 @client.on(events.NewMessage(pattern='/support'))
 async def support_cmd(event):
-    # Fixed support command
     await event.reply("👋 **Support:** Contact @Best_Admin24 for assistance with payments or tickets.")
 
 @client.on(events.NewMessage(pattern='/broadcast'))
@@ -50,9 +63,11 @@ async def broadcast_cmd(event):
     if event.sender_id != config.ADMIN_ID: return
     msg = event.text.replace('/broadcast', '').strip()
     if not msg: return await event.reply("Usage: /broadcast [message]")
+    
     conn = database.get_connection(); cur = conn.cursor()
     cur.execute("SELECT user_id FROM subscribers"); users = cur.fetchall()
     cur.close(); conn.close()
+    
     for u in users:
         try:
             await client.send_message(u[0], msg)
@@ -60,7 +75,7 @@ async def broadcast_cmd(event):
         except: continue
     await event.reply("✅ Broadcast Finished.")
 
-# --- 3. CALLBACK HANDLERS (EXACT TEXT) ---
+# --- 3. CALLBACKS: GUARANTEE & TERMS ---
 @client.on(events.CallbackQuery(data="win_guarantee"))
 async def wg(event):
     await event.answer()
@@ -91,6 +106,7 @@ async def claim(event):
     btns = [[Button.inline("✅ Approve", data=f"app_{user.id}"), Button.inline("❌ Reject", data=f"rej_{user.id}")]]
     await client.send_message(config.ADMIN_ID, f"🚨 **New Claim!**\nUser: {user.first_name}\nID: `{user.id}`", buttons=btns)
 
+# --- 4. ADMIN APPROVE/REJECT LOGIC ---
 @client.on(events.CallbackQuery(pattern=r"(app|rej)_(\d+)"))
 async def admin_decision(event):
     if event.sender_id != config.ADMIN_ID: return
@@ -99,26 +115,32 @@ async def admin_decision(event):
     
     if act == "app":
         database.approve_user_24h(uid, "User")
-        # EXACT REQUESTED APPROVAL MESSAGE
         success_msg = """✅ **Payment Verified**
 
 Your ticket has been successfully issued and is valid for 24 hours."""
         await client.send_file(uid, config.TICKET_URL, caption=success_msg)
         await event.edit(f"✅ Approved User {uid}")
     else:
-        # EXACT REQUESTED REJECTION MESSAGE
         reject_msg = """❌ **Payment Claim Rejected**
 
 Your payment could not be verified. Please check your payment details and try again or contact @Best_Admin24 for assistance."""
         await client.send_message(uid, reject_msg)
         await event.edit(f"❌ Rejected User {uid}")
 
-# --- 4. STARTUP ---
+# --- 5. STARTUP & LAUNCHED MESSAGE ---
 async def main():
     try:
         await client.start(bot_token=config.BOT_TOKEN)
         database.init_db()
-        await client.send_message(config.ADMIN_ID, "🚀 **Bot is Online!**")
+        
+        launch_text = """🚀 **Mr. White Bot Successfully Launched!**
+━━━━━━━━━━━━━━━━━━━━
+✅ **Connection:** Established
+✅ **Database:** Connected
+✅ **Admin Alerts:** Active
+✅ **Broadcast System:** Ready"""
+        
+        await client.send_message(config.ADMIN_ID, launch_text)
         await client.run_until_disconnected()
     except FloodWaitError as e:
         await asyncio.sleep(e.seconds); await main()
