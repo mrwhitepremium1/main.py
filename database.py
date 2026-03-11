@@ -1,12 +1,14 @@
 import psycopg2
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 
 def get_connection():
     return psycopg2.connect(os.environ.get("DATABASE_URL"))
 
 def init_db():
     conn = get_connection(); cur = conn.cursor()
+    # CRITICAL: Recreating the approved table to wipe any old "ghost" data
+    cur.execute("DROP TABLE IF EXISTS approved_users") 
     cur.execute("""
         CREATE TABLE IF NOT EXISTS subscribers (
             user_id BIGINT PRIMARY KEY,
@@ -25,7 +27,6 @@ def init_db():
 
 def approve_user_24h(user_id, name):
     conn = get_connection(); cur = conn.cursor()
-    from datetime import timedelta
     expiry = datetime.now() + timedelta(hours=24)
     cur.execute("""
         INSERT INTO approved_users (user_id, name, expiry_time)
@@ -36,18 +37,14 @@ def approve_user_24h(user_id, name):
 
 def is_user_approved(user_id):
     conn = get_connection(); cur = conn.cursor()
-    # WE ONLY CHECK THE APPROVED_USERS TABLE
+    # Logic: ONLY check the approved_users table. 
+    # If the ID isn't here, it's 100% INACTIVE.
     cur.execute("SELECT expiry_time FROM approved_users WHERE user_id = %s", (user_id,))
     result = cur.fetchone()
     cur.close(); conn.close()
     
-    # If the user is NOT in this table, they are INACTIVE
     if result is None:
         return False
-        
-    # If they are in the table, check if the 24 hours have passed
-    expiry_time = result[0]
-    if datetime.now() < expiry_time:
-        return True
     
-    return False
+    # Check if the 24-hour window is still open
+    return datetime.now() < result[0]
