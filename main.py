@@ -70,7 +70,7 @@ async def admin_decision(event):
         await client.send_file(
             uid, 
             config.TICKET_URL, 
-            caption="✅ **Payment Verified!**\n\nHere is your clean uncovered ticket. It is valid for 24 hours. Good luck!"
+            caption="✅ **Payment Verified!**\n\nHere is your clean uncovered ticket. Access is valid for 24 hours. Good luck!"
         )
         await event.edit(f"✅ User {uid} has been Approved.")
     else:
