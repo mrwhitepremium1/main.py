@@ -13,7 +13,7 @@ async def start(event):
     ]
     await client.send_file(event.chat_id, config.WELCOME_IMAGE, caption="**Welcome!**\n\nPay and then click 'Claim'.", buttons=buttons)
 
-@client.on(events.CallbackQuery(data=b"claim_pay"))
+@client.on(events.CallbackQuery(pattern=b"claim_pay"))
 async def handle_claim(event):
     user = await event.get_sender()
     admin_buttons = [[Button.inline("✅ Approve", data=f"app_{user.id}"), Button.inline("❌ Reject", data=f"rej_{user.id}")]]
