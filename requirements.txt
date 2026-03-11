@@ -1,5 +1,2 @@
-pyrogram
-tgcrypto
-fastapi
-uvicorn
-requests
+telethon
+psycopg2-binary
