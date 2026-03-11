@@ -1,10 +1,10 @@
 from telethon import TelegramClient, events, Button
 import config
 import database
+import os
 
 client = TelegramClient('bot_session', config.API_ID, config.API_HASH).start(bot_token=config.BOT_TOKEN)
 
-# Initialize database on startup
 database.init_db()
 
 @client.on(events.NewMessage(pattern='/start'))
@@ -13,59 +13,47 @@ async def start(event):
         [Button.url("💳 Pay via Selar", config.SELAR_PAYMENT_LINK)],
         [Button.inline("✅ I Have Paid (Claim)", data="claim_pay")]
     ]
+    # Sends the DAILY BLURRED teaser from Railway
     await client.send_file(
         event.chat_id, 
-        config.WELCOME_IMAGE, 
-        caption="**Welcome to Mr. White Official!**\n\nTo get today's ticket, please pay using the link below and then click 'Claim'.", 
+        config.COVERED_TICKET_URL, 
+        caption="**Welcome to Mr. White Official!**\n\nTo see today's full uncovered ticket, please pay via the link below and click 'Claim'.", 
         buttons=buttons
     )
 
-@client.on(events.CallbackQuery(pattern=b"claim_pay"))
-async def handle_claim(event):
-    # Stop the loading spinner on user's phone
-    await event.answer("Verification request sent!", alert=True)
-    
+@client.on(events.CallbackQuery(data="claim_pay"))
+async def claim(event):
     user = await event.get_sender()
-    username = user.username if user.username else user.first_name
+    name = f"{user.first_name} {user.last_name or ''}"
     
-    # Create buttons for the ADMIN to click
+    # Notify Admin (You)
     admin_buttons = [
-        [Button.inline("✅ Approve", data=f"app_{user.id}"), 
+        [Button.inline("✅ Approve", data=f"app_{user.id}"),
          Button.inline("❌ Reject", data=f"rej_{user.id}")]
     ]
-    
-    # Send notification to the ADMIN
     await client.send_message(
         config.ADMIN_ID, 
-        f"🚨 **New Payment Claim!**\n\nUser: {user.first_name}\nUsername: @{user.username}\nID: `{user.id}`", 
+        f"🚨 **New Payment Claim!**\n\nUser: **{name}**\nUsername: @{user.username}\nID: `{user.id}`", 
         buttons=admin_buttons
     )
-    
-    await event.edit("✅ Your request has been sent to the Admin. Please wait for verification.")
+    await event.answer("Wait for admin approval...", alert=True)
 
-@client.on(events.CallbackQuery(pattern=r"(app|rej)_(.*)"))
+@client.on(events.CallbackQuery(pattern=r"(app|rej)_(\d+)"))
 async def admin_decision(event):
-    # Only the Admin can click these buttons
     if event.sender_id != config.ADMIN_ID:
-        await event.answer("Access Denied.", alert=True)
         return
-
-    data = event.data.decode().split("_")
-    action = data[0]
-    uid = int(data[1])
-
+        
+    action = event.data.decode().split('_')[0]
+    uid = int(event.data.decode().split('_')[1])
+    
     if action == "app":
-        # 1. Update database for 24 hours
         database.approve_user_24h(uid, "User")
-        
-        # 2. Send the ticket to the user
-        await client.send_file(uid, config.TICKET_IMAGE, caption="✅ **Payment Verified!**\n\nHere is your ticket. It is valid for 24 hours.")
-        
-        # 3. Update the admin's view
-        await event.edit(f"✅ User `{uid}` Approved. Ticket sent.")
-        
-    elif action == "rej":
-        await client.send_message(uid, "❌ **Payment Rejected.**\n\nPlease ensure you have completed the payment before claiming.")
-        await event.edit(f"❌ User `{uid}` Rejected.")
+        # Sends the DAILY CLEAN ticket from Railway
+        await client.send_file(uid, config.TICKET_URL, caption="✅ **Payment Verified!**\n\nHere is your ticket. It is valid for 24 hours.")
+        await event.edit(f"✅ User {uid} Approved.")
+    else:
+        await client.send_message(uid, "❌ Your payment claim was rejected. Please contact support.")
+        await event.edit(f"❌ User {uid} Rejected.")
 
+print("Bot is running...")
 client.run_until_disconnected()
