@@ -3,20 +3,17 @@ from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 import config
 
-# store users
 users = set()
-
-# daily ticket
 daily_ticket = None
 
 bot = Client(
-    "ticket_bot",
+    "premium_ticket_bot",
     api_id=int(config.API_ID),
     api_hash=config.API_HASH,
     bot_token=config.BOT_TOKEN
 )
 
-# START COMMAND
+# START
 @bot.on_message(filters.command("start"))
 async def start(client, message):
 
@@ -25,31 +22,68 @@ async def start(client, message):
     keyboard = InlineKeyboardMarkup(
         [
             [InlineKeyboardButton("💳 Buy Ticket GHS 150", url=config.SELAR_PAYMENT_LINK)],
-            [InlineKeyboardButton("📩 I Have Paid", callback_data="paid")]
+            [InlineKeyboardButton("✅ I Have Paid", callback_data="paid")]
         ]
     )
 
-    caption = (
-        "🔥 Welcome to the Premium Betting Bot!\n\n"
-        "Daily VIP ticket available.\n\n"
-        "Click BUY TICKET to purchase today's ticket."
+    text = (
+        "🔥 *Welcome to Premium Betting Bot*\n\n"
+        "Get today's VIP betting ticket.\n\n"
+        "1️⃣ Click BUY TICKET\n"
+        "2️⃣ Complete payment\n"
+        "3️⃣ Click I HAVE PAID\n\n"
+        "Admin will verify and send ticket."
     )
 
     await message.reply_photo(
         photo=config.WELCOME_IMAGE,
-        caption=caption,
+        caption=text,
         reply_markup=keyboard
     )
 
-
 # USER CLAIM PAYMENT
 @bot.on_callback_query(filters.regex("paid"))
-async def paid(client, callback_query):
+async def claim_payment(client, query):
 
-    await callback_query.message.reply_text(
-        "✅ Payment received.\n\nAdmin will verify and send your ticket shortly."
+    user = query.from_user
+
+    keyboard = InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton("✅ Approve", callback_data=f"approve_{user.id}")
+            ]
+        ]
     )
 
+    await bot.send_message(
+        config.ADMIN_ID,
+        f"💰 Payment Claim\n\nUser: {user.mention}\nID: {user.id}",
+        reply_markup=keyboard
+    )
+
+    await query.message.reply_text(
+        "⏳ Payment request sent to admin.\n\nPlease wait for approval."
+    )
+
+# ADMIN APPROVE PAYMENT
+@bot.on_callback_query(filters.regex("approve_"))
+async def approve_payment(client, query):
+
+    global daily_ticket
+
+    user_id = int(query.data.split("_")[1])
+
+    if not daily_ticket:
+        await query.message.reply_text("❌ No ticket uploaded today.")
+        return
+
+    await bot.send_photo(
+        user_id,
+        daily_ticket,
+        caption="🎟 Here is today's premium ticket!"
+    )
+
+    await query.message.edit_text("✅ Ticket sent to user.")
 
 # ADMIN UPLOAD DAILY TICKET
 @bot.on_message(filters.photo & filters.user(config.ADMIN_ID))
@@ -59,31 +93,7 @@ async def upload_ticket(client, message):
 
     daily_ticket = message.photo.file_id
 
-    await message.reply_text("✅ Daily ticket updated successfully!")
-
-
-# ADMIN SEND TICKET TO USER
-@bot.on_message(filters.command("send") & filters.user(config.ADMIN_ID))
-async def send_ticket(client, message):
-
-    if not daily_ticket:
-        await message.reply_text("❌ No ticket uploaded today.")
-        return
-
-    if len(message.command) < 2:
-        await message.reply_text("Usage: /send USER_ID")
-        return
-
-    user_id = int(message.command[1])
-
-    await bot.send_photo(
-        user_id,
-        daily_ticket,
-        caption="🎟 Here is today's premium ticket!"
-    )
-
-    await message.reply_text("✅ Ticket sent.")
-
+    await message.reply_text("✅ Daily ticket updated!")
 
 # BROADCAST
 @bot.on_message(filters.command("broadcast") & filters.user(config.ADMIN_ID))
@@ -100,8 +110,7 @@ async def broadcast(client, message):
         except:
             pass
 
-    await message.reply_text(f"Broadcast sent to {sent} users")
-
+    await message.reply_text(f"Broadcast sent to {sent} users.")
 
 # STATS
 @bot.on_message(filters.command("stats") & filters.user(config.ADMIN_ID))
@@ -109,13 +118,11 @@ async def stats(client, message):
 
     await message.reply_text(f"Total users: {len(users)}")
 
-
-# RUN BOT
+# RUN
 async def main():
     await bot.start()
-    print("Bot is running...")
+    print("Bot Running...")
     await asyncio.Event().wait()
-
 
 if __name__ == "__main__":
     asyncio.run(main())
