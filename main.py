@@ -30,33 +30,113 @@ async def start(event):
         [Button.inline("❓ How to Pay", data="how_to_pay"), Button.inline("✅ I Have Paid", data="claim_pay")]
     ]
     
-    welcome_text = (f"Hello 👋 {first_name}!\n\n**Welcome to Mr. White | Official Bot**\n\n"
-                    "💎 **NEW INFO ARRIVED**\n━━━━━━━━━━━━━━━━━━━\n"
-                    "⭐ **CONFIRMED TICKET** 🎫\n☑ **Fixed Tips:** Correct Score\n✔ **Safe:** 💯 Guaranteed\n\n"
-                    "**Price:** $20 USD / 150 GHS / 20,000 NGN\n\n"
-                    "To see today's full ticket, please pay via the link and click 'Claim'.")
+    welcome_text = f"""Hello 👋 {first_name}!
+
+**Welcome to Mr. White | Official Bot**
+
+💎 **NEW INFO ARRIVED**
+━━━━━━━━━━━━━━━━━━━
+⭐ **CONFIRMED TICKET** 🎫
+☑ **Fixed Tips:** Correct Score
+✔ **Safe:** 💯 Guaranteed
+
+**Price:** $20 USD / 150 GHS / 20,000 NGN
+
+To see today's full ticket, please pay via the link and click 'Claim'."""
     
     await client.send_file(event.chat_id, config.COVERED_TICKET_URL, caption=welcome_text, buttons=buttons)
 
-# --- 2. THE FIX: CALLBACK HANDLERS (Stops "Loading..." Spinner) ---
+# --- 2. CALLBACK HANDLERS ---
 
 @client.on(events.CallbackQuery(data="how_to_pay"))
 async def how_to_pay_handler(event):
-    await event.answer() # CRITICAL: This stops the loading spinner
-    guide = (
-        "📖 **How to Pay Guide**\n\n"
-        "1️⃣ Click the **Pay via Selar** link.\n"
-        "2️⃣ Select your currency (USD, GHS, NGN, etc.) at the top of the page.\n"
-        "3️⃣ Enter your Name and Email.\n"
-        "4️⃣ Choose your payment method (Card or Mobile Money).\n"
-        "5️⃣ Once payment is successful, return here and click **'I Have Paid (Claim)'**."
-    )
+    await event.answer()
+    guide = """📖 **How to Pay Guide**
+
+1️⃣ Click the **Pay via Selar** link.
+2️⃣ Select your currency (USD, GHS, NGN, etc.) at the top of the page.
+3️⃣ Enter your Name and Email.
+4️⃣ Choose your payment method (Card or Mobile Money).
+5️⃣ Once payment is successful, return here and click **'I Have Paid (Claim)'**."""
     await event.reply(guide)
 
 @client.on(events.CallbackQuery(data="win_guarantee"))
 async def win_guarantee_handler(event):
-    await event.answer() # Stops loading spinner
-    guarantee_text = (
-        "🛡️ **Mr. White Win Guarantee**\n\n"
-        "We pride ourselves on delivering high-accuracy Correct Score selections. "
-        "Our team performs deep analysis on team form, injuries, and historical data to ensure a **95%+ success rate**.\
+    await event.answer()
+    guarantee_text = """🛡️ **Mr. White Win Guarantee**
+
+We pride ourselves on delivering high-accuracy Correct Score selections. Our team performs deep analysis on team form, injuries, and historical data to ensure a **95%+ success rate**.
+
+• **Verified Results:** Every ticket is recorded and verified post-match.
+• **Transparency:** We do not delete past results; we let our history speak for itself.
+• **Risk Note:** While our accuracy is industry-leading, betting involves risk. We advise responsible play."""
+    await event.reply(guarantee_text)
+
+@client.on(events.CallbackQuery(data="terms"))
+async def terms_handler(event):
+    await event.answer()
+    terms_text = """⚖️ **Terms of Service**
+
+By utilizing Mr. White Official Bot services, you agree to the following:
+
+1. **Final Sale:** Due to the nature of digital information, all ticket purchases are final. No refunds are issued after a ticket has been accessed.
+2. **Verification:** Payment "Claims" are subject to manual admin verification. Fraudulent claims will result in a permanent ban.
+3. **Confidentiality:** Sharing or reselling purchased tickets is strictly prohibited and will result in the immediate termination of access."""
+    await event.reply(terms_text)
+
+# --- 3. PAYMENT CLAIM & ADMIN ---
+@client.on(events.CallbackQuery(data="claim_pay"))
+async def claim(event):
+    await event.answer("✅ Request sent to Admin.", alert=True)
+    user = await event.get_sender()
+    btns = [[Button.inline("✅ Approve", data=f"app_{user.id}"), Button.inline("❌ Reject", data=f"rej_{user.id}")]]
+    await client.send_message(config.ADMIN_ID, f"🚨 **New Claim!**\nUser: {user.first_name}\nID: `{user.id}`", buttons=btns)
+
+@client.on(events.CallbackQuery(pattern=r"(app|rej)_(\d+)"))
+async def admin_decision(event):
+    if event.sender_id != config.ADMIN_ID: return
+    await event.answer()
+    action, uid = event.data.decode().split('_')[0], int(event.data.decode().split('_')[1])
+    if action == "app":
+        database.approve_user_24h(uid, "User")
+        await client.send_file(uid, config.TICKET_URL, caption="✅ **Payment Verified!** Here is your ticket.")
+        await event.edit(f"✅ User {uid} Approved.")
+    else:
+        await client.send_message(uid, "❌ **Payment Rejected.** Contact @Best_Admin24.")
+        await event.edit(f"❌ User {uid} Rejected.")
+
+# --- 4. VICTORY & STARTUP ---
+@client.on(events.NewMessage(pattern='/victory'))
+async def victory_broadcast(event):
+    if event.sender_id != config.ADMIN_ID: return
+    details = event.text.replace('/victory', '').strip()
+    victory_msg = f"""🏆 **BOOOOM! MATCH WON!** 🏆
+
+✅ **Match:** {details if details else "Latest Selection"}
+📈 **Success Rate:** 95%+ Accuracy Maintained
+
+**Congratulations to all our winners!** 💰💰💰
+Type /start to secure the next ticket."""
+    
+    conn = database.get_connection(); cur = conn.cursor()
+    cur.execute("SELECT user_id FROM subscribers"); users = cur.fetchall()
+    cur.close(); conn.close()
+    for u in users:
+        try:
+            await client.send_message(u[0], victory_msg)
+            await asyncio.sleep(0.05)
+        except: continue
+    await event.reply("✅ Victory announced.")
+
+async def main():
+    try:
+        await client.start(bot_token=config.BOT_TOKEN)
+        database.init_db()
+        print("✅ Bot is online!")
+        await client.run_until_disconnected()
+    except FloodWaitError as e:
+        print(f"⚠️ FloodWait: Waiting {e.seconds}s...")
+        await asyncio.sleep(e.seconds); await main()
+
+if __name__ == '__main__':
+    asyncio.run(main())
