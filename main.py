@@ -6,7 +6,7 @@ import os
 client = TelegramClient('bot_session', config.API_ID, config.API_HASH).start(bot_token=config.BOT_TOKEN)
 database.init_db()
 
-# --- START COMMAND (Personalized + Visitor Alert) ---
+# --- START COMMAND ---
 @client.on(events.NewMessage(pattern='/start'))
 async def start(event):
     user = await event.get_sender()
@@ -20,12 +20,8 @@ async def start(event):
         conn.commit()
         cur.execute("SELECT COUNT(*) FROM subscribers")
         total = cur.fetchone()[0]
-        
-        # Notify Admin of NEW visitor
         await client.send_message(config.ADMIN_ID, f"👤 **New Visitor Alert!**\n\nName: {first_name}\nUsername: @{user.username}\n📈 Total Users: {total}")
-
-    cur.close()
-    conn.close()
+    cur.close(); conn.close()
 
     buttons = [[Button.url("💳 Pay via Selar", config.SELAR_PAYMENT_LINK)],
                [Button.inline("✅ I Have Paid (Claim)", data="claim_pay")]]
@@ -87,6 +83,32 @@ async def admin_decision(event):
     else:
         await client.send_message(uid, "❌ **Payment Claim Rejected**\nPlease check details or contact @Best_Admin24.")
         await event.edit(f"❌ User {uid} Rejected.")
+
+# --- NEW: AUTO-REPLY FOR ALL OTHER MESSAGES ---
+@client.on(events.NewMessage)
+async def auto_reply(event):
+    # Don't reply to commands or the bot's own messages
+    if event.text.startswith('/') or event.is_bot:
+        return
+    
+    # Don't reply to the Admin (you) so you can still type commands
+    if event.sender_id == config.ADMIN_ID:
+        return
+
+    reply_text = (
+        "🤖 **Mr. White Official Assistant**\n\n"
+        "I am an automated system. To view today's winning ticket or make a payment, "
+        "please click the button below or type **/start**.\n\n"
+        "For direct chat with an agent, contact: @Best_Admin24"
+    )
+    
+    buttons = [Button.inline("🎫 View Ticket", data="show_start_logic")]
+    await event.reply(reply_text, buttons=buttons)
+
+# Small helper to make the "View Ticket" button work in the auto-reply
+@client.on(events.CallbackQuery(data="show_start_logic"))
+async def show_start(event):
+    await start(event)
 
 print("Bot is running...")
 client.run_until_disconnected()
