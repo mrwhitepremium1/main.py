@@ -6,7 +6,7 @@ import os
 client = TelegramClient('bot_session', config.API_ID, config.API_HASH).start(bot_token=config.BOT_TOKEN)
 database.init_db()
 
-# --- START COMMAND ---
+# --- 1. START COMMAND ---
 @client.on(events.NewMessage(pattern='/start'))
 async def start(event):
     user = await event.get_sender()
@@ -33,7 +33,7 @@ async def start(event):
     
     await client.send_file(event.chat_id, config.COVERED_TICKET_URL, caption=welcome_text, buttons=buttons)
 
-# --- MENU COMMANDS ---
+# --- 2. MENU COMMANDS ---
 @client.on(events.NewMessage(pattern='/support'))
 async def support(event):
     await event.reply("👋 **Need help?**\n\nContact our official admin: @Best_Admin24")
@@ -45,7 +45,7 @@ async def status(event):
     else:
         await event.reply("❌ **Inactive:** No active ticket found. Use /start to buy.")
 
-# --- BROADCAST (Admin Only) ---
+# --- 3. BROADCAST (Admin Only) ---
 @client.on(events.NewMessage(pattern='/broadcast'))
 async def broadcast(event):
     if event.sender_id != config.ADMIN_ID: return
@@ -62,7 +62,7 @@ async def broadcast(event):
         except: continue
     await event.reply(f"✅ Broadcast sent to {count} users.")
 
-# --- CLAIM & ADMIN DECISION ---
+# --- 4. CLAIM & ADMIN DECISION ---
 @client.on(events.CallbackQuery(data="claim_pay"))
 async def claim(event):
     user = await event.get_sender()
@@ -84,16 +84,13 @@ async def admin_decision(event):
         await client.send_message(uid, "❌ **Payment Claim Rejected**\nPlease check details or contact @Best_Admin24.")
         await event.edit(f"❌ User {uid} Rejected.")
 
-# --- NEW: AUTO-REPLY FOR ALL OTHER MESSAGES ---
-@client.on(events.NewMessage)
+# --- 5. THE AUTO-REPLY (Must be at the bottom) ---
+@client.on(events.NewMessage(incoming=True, func=lambda e: e.is_private))
 async def auto_reply(event):
-    # Don't reply to commands or the bot's own messages
-    if event.text.startswith('/') or event.is_bot:
-        return
-    
-    # Don't reply to the Admin (you) so you can still type commands
-    if event.sender_id == config.ADMIN_ID:
-        return
+    # Skip if it's a command
+    if event.text.startswith('/'): return
+    # Skip if it's the Admin (to let you work in peace)
+    if event.sender_id == config.ADMIN_ID: return
 
     reply_text = (
         "🤖 **Mr. White Official Assistant**\n\n"
@@ -101,11 +98,9 @@ async def auto_reply(event):
         "please click the button below or type **/start**.\n\n"
         "For direct chat with an agent, contact: @Best_Admin24"
     )
-    
     buttons = [Button.inline("🎫 View Ticket", data="show_start_logic")]
     await event.reply(reply_text, buttons=buttons)
 
-# Small helper to make the "View Ticket" button work in the auto-reply
 @client.on(events.CallbackQuery(data="show_start_logic"))
 async def show_start(event):
     await start(event)
