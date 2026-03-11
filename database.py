@@ -10,7 +10,6 @@ def get_connection():
 def init_db():
     conn = get_connection()
     cur = conn.cursor()
-    # expiry_time stores when their access should end
     cur.execute("""
         CREATE TABLE IF NOT EXISTS subscribers (
             user_id BIGINT PRIMARY KEY,
@@ -23,38 +22,24 @@ def init_db():
     cur.close()
     conn.close()
 
-def add_subscriber(user_id, username):
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute("INSERT INTO subscribers (user_id, username) VALUES (%s, %s) ON CONFLICT DO NOTHING", (user_id, username))
-    conn.commit()
-    cur.close()
-    conn.close()
-
-def approve_user_24h(user_id):
-    """Sets status to active and sets expiry to 24 hours from now"""
+def approve_user_24h(user_id, username):
     expiry = datetime.now() + timedelta(hours=24)
     conn = get_connection()
     cur = conn.cursor()
-    cur.execute(
-        "UPDATE subscribers SET status = 'active', expiry_time = %s WHERE user_id = %s",
-        (expiry, user_id)
-    )
+    cur.execute("""
+        INSERT INTO subscribers (user_id, username, status, expiry_time) 
+        VALUES (%s, %s, 'active', %s)
+        ON CONFLICT (user_id) DO UPDATE SET status = 'active', expiry_time = %s
+    """, (user_id, username, expiry, expiry))
     conn.commit()
     cur.close()
     conn.close()
 
-def remove_expired_users():
-    """Finds users whose expiry_time has passed and resets them"""
+def get_active_users():
     conn = get_connection()
     cur = conn.cursor()
-    # Find users to notify before deleting/resetting (optional)
-    cur.execute("SELECT user_id FROM subscribers WHERE status = 'active' AND expiry_time < NOW()")
-    expired_ids = [row[0] for row in cur.fetchall()]
-    
-    # Reset their status
-    cur.execute("UPDATE subscribers SET status = 'expired' WHERE status = 'active' AND expiry_time < NOW()")
-    conn.commit()
+    cur.execute("SELECT user_id FROM subscribers WHERE status = 'active' AND expiry_time > NOW()")
+    users = [row[0] for row in cur.fetchall()]
     cur.close()
     conn.close()
-    return expired_ids
+    return users
