@@ -7,7 +7,7 @@ import database
 
 # Fixes the "Starting Container" hang by showing real logs
 logging.basicConfig(level=logging.INFO)
-client = TelegramClient('mr_white_production_v8', config.API_ID, config.API_HASH)
+client = TelegramClient('mr_white_production_v9', config.API_ID, config.API_HASH)
 
 # --- 1. WELCOME & NEW USER ALERT ---
 @client.on(events.NewMessage(pattern='/start'))
@@ -22,7 +22,6 @@ async def start(event):
         conn.commit()
         cur.execute("SELECT COUNT(*) FROM subscribers")
         total = cur.fetchone()[0]
-        # Admin Alert
         await client.send_message(config.ADMIN_ID, f"👤 **New Visitor Alert!**\nName: {first_name}\nID: `{user.id}`\nTotal Users: {total}")
     cur.close(); conn.close()
 
@@ -46,13 +45,14 @@ To access today's confirmed selections, please check the price via the link belo
 
     await client.send_file(event.chat_id, config.COVERED_TICKET_URL, caption=welcome_text, buttons=buttons)
 
-# --- 2. COMMANDS: STATUS, SUPPORT, BROADCAST ---
+# --- 2. COMMANDS: STATUS (RESTORED FORMAT), SUPPORT, BROADCAST ---
 @client.on(events.NewMessage(pattern='/status'))
 async def status_cmd(event):
+    # RESTORED: Previous UI format with the logic fix
     if database.is_user_approved(event.sender_id):
-        await event.reply("📊 **Status:** Your access is **ACTIVE** ✅")
+        await event.reply("📊 **Status: ACTIVE** ✅")
     else:
-        await event.reply("📊 **Status:** Your access is **INACTIVE** ❌\nPlease purchase a ticket to activate.")
+        await event.reply("📊 **Status: INACTIVE** ❌")
 
 @client.on(events.NewMessage(pattern='/support'))
 async def support_cmd(event):
