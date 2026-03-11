@@ -1,12 +1,9 @@
 import logging
 from telethon import TelegramClient, events, Button
-from telethon.errors import FloodWaitError
-import asyncio
-import config
-import database
+import config, database, asyncio
 
 logging.basicConfig(level=logging.INFO)
-client = TelegramClient('mr_white_v10_final', config.API_ID, config.API_HASH)
+client = TelegramClient('mr_white_strict_v11', config.API_ID, config.API_HASH)
 
 # --- 1. START & NEW USER ALERT ---
 @client.on(events.NewMessage(pattern='/start'))
@@ -44,37 +41,29 @@ To access today's confirmed selections, please check the price via the link belo
 
     await client.send_file(event.chat_id, config.COVERED_TICKET_URL, caption=welcome_text, buttons=buttons)
 
-# --- 2. RESTORED STATUS & SUPPORT ---
+# --- 2. STATUS & SUPPORT ---
 @client.on(events.NewMessage(pattern='/status'))
 async def status_cmd(event):
-    # This now uses the strict check from database.py
-    if database.is_user_approved(event.sender_id):
+    # STRICT CHECK: Result from approved_users table only
+    is_active = database.is_user_approved(event.sender_id)
+    
+    if is_active:
         await event.reply("📊 **Status: ACTIVE** ✅")
     else:
         await event.reply("📊 **Status: INACTIVE** ❌")
 
 @client.on(events.NewMessage(pattern='/support'))
 async def support_cmd(event):
-    await event.reply("👋 **Support:** Contact @Best_Admin24 for assistance with payments or tickets.")
+    await event.reply("👋 **Support:** Contact @Best_Admin24 for assistance.")
 
-# --- 3. CALLBACKS (GUARANTEE / TERMS / CLAIM) ---
+# --- 3. CALLBACKS & ADMIN DECISION ---
 @client.on(events.CallbackQuery(data="win_guarantee"))
 async def wg(event):
-    await event.answer()
-    text = """🛡️ **Mr. White Win Guarantee**
-
-We pride ourselves on delivering high-accuracy Correct Score selections. Our team performs deep analysis to ensure a **95%+ success rate**."""
-    await event.reply(text)
+    await event.answer(); await event.reply("🛡️ **Mr. White Win Guarantee**\n\n95%+ Accuracy Guaranteed through expert analysis.")
 
 @client.on(events.CallbackQuery(data="terms"))
 async def tr(event):
-    await event.answer()
-    text = """⚖️ **Terms of Service**
-
-1. **Final Sale:** All purchases are final.
-2. **Verification:** Claims are subject to manual admin verification.
-3. **Confidentiality:** Reselling tickets is strictly prohibited."""
-    await event.reply(text)
+    await event.answer(); await event.reply("⚖️ **Terms of Service**\n\n1. Final Sale.\n2. Manual Verification.\n3. Reselling is prohibited.")
 
 @client.on(events.CallbackQuery(data="claim_pay"))
 async def claim(event):
@@ -83,7 +72,6 @@ async def claim(event):
     btns = [[Button.inline("✅ Approve", data=f"app_{user.id}"), Button.inline("❌ Reject", data=f"rej_{user.id}")]]
     await client.send_message(config.ADMIN_ID, f"🚨 **New Claim!**\nUser: {user.first_name}\nID: `{user.id}`", buttons=btns)
 
-# --- 4. ADMIN DECISION ---
 @client.on(events.CallbackQuery(pattern=r"(app|rej)_(\d+)"))
 async def admin_decision(event):
     if event.sender_id != config.ADMIN_ID: return
@@ -92,19 +80,18 @@ async def admin_decision(event):
     
     if act == "app":
         database.approve_user_24h(uid, "User")
-        success_msg = "✅ **Payment Verified**\n\nYour ticket has been successfully issued and is valid for 24 hours."
-        await client.send_file(uid, config.TICKET_URL, caption=success_msg)
+        msg = "✅ **Payment Verified**\n\nYour ticket has been successfully issued and is valid for 24 hours."
+        await client.send_file(uid, config.TICKET_URL, caption=msg)
         await event.edit(f"✅ Approved User {uid}")
     else:
-        reject_msg = "❌ **Payment Claim Rejected**\n\nYour payment could not be verified. Please check your payment details and try again or contact @Best_Admin24 for assistance."
-        await client.send_message(uid, reject_msg)
+        msg = "❌ **Payment Claim Rejected**\n\nYour payment could not be verified. Please check your payment details and try again or contact @Best_Admin24."
+        await client.send_message(uid, msg)
         await event.edit(f"❌ Rejected User {uid}")
 
-# --- 5. STARTUP ---
 async def main():
     await client.start(bot_token=config.BOT_TOKEN)
     database.init_db()
-    await client.send_message(config.ADMIN_ID, "🚀 **Mr. White Bot is Online & Status Fixed!**")
+    await client.send_message(config.ADMIN_ID, "🚀 **Bot Online - Status Logic Fully Reset!**")
     await client.run_until_disconnected()
 
 if __name__ == '__main__':
