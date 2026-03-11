@@ -3,6 +3,7 @@ import os
 from datetime import datetime, timedelta
 
 def get_connection():
+    # This pulls your Database URL directly from Railway's environment
     return psycopg2.connect(os.environ.get("DATABASE_URL"))
 
 def init_db():
