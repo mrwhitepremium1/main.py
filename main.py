@@ -7,18 +7,44 @@ import os
 
 client = TelegramClient('bot_session', config.API_ID, config.API_HASH)
 
-# --- 1. START & STATUS ---
+# --- 1. START & REINFORCED USER ALERT ---
 @client.on(events.NewMessage(pattern='/start'))
 async def start(event):
     user = await event.get_sender()
     first_name = user.first_name if user.first_name else "Winner"
+    username = f"@{user.username}" if user.username else "No Username"
     
-    conn = database.get_connection(); cur = conn.cursor()
+    conn = database.get_connection()
+    cur = conn.cursor()
+    
+    # Check if user is new
     cur.execute("SELECT user_id FROM subscribers WHERE user_id = %s", (user.id,))
-    if not cur.fetchone():
+    is_new = cur.fetchone() is None
+    
+    if is_new:
+        # Add new user to database
         cur.execute("INSERT INTO subscribers (user_id, username) VALUES (%s, %s)", (user.id, user.username))
         conn.commit()
-    cur.close(); conn.close()
+        
+        # Get total user count for the alert
+        cur.execute("SELECT COUNT(*) FROM subscribers")
+        total_users = cur.fetchone()[0]
+        
+        # IMMEDIATE ADMIN ALERT (Fixed)
+        alert_msg = f"""👤 **New Visitor Alert!**
+━━━━━━━━━━━━━━━━━━━
+📝 **Name:** {first_name}
+🆔 **ID:** `{user.id}`
+🔗 **Username:** {username}
+📈 **Total Users:** {total_users}"""
+        
+        try:
+            await client.send_message(config.ADMIN_ID, alert_msg)
+        except Exception as e:
+            print(f"Admin Alert Error: {e}")
+
+    cur.close()
+    conn.close()
 
     buttons = [
         [Button.url("💳 Check Price & Buy Ticket", config.SELAR_PAYMENT_LINK)],
@@ -40,76 +66,59 @@ To see today's full ticket, please check the price and buy your ticket via the l
     
     await client.send_file(event.chat_id, config.COVERED_TICKET_URL, caption=welcome_text, buttons=buttons)
 
+# --- 2. STATUS & BROADCAST ---
 @client.on(events.NewMessage(pattern='/status'))
 async def status_cmd(event):
     if database.is_user_approved(event.sender_id):
-        await event.reply("📊 **Status:** Your access is **ACTIVE**. You have full access to current tickets.")
+        await event.reply("📊 **Status:** Your access is **ACTIVE**.")
     else:
-        await event.reply("📊 **Status:** Your access is currently **INACTIVE**. Please purchase a ticket to activate.")
+        await event.reply("📊 **Status:** Your access is currently **INACTIVE**.")
 
-@client.on(events.NewMessage(pattern='/support'))
-async def support_cmd(event):
-    await event.reply("👋 **Support:** Contact @Best_Admin24 for assistance.")
-
-# --- 2. THE BROADCAST COMMAND (Fixed) ---
 @client.on(events.NewMessage(pattern='/broadcast'))
 async def broadcast_cmd(event):
-    if event.sender_id != config.ADMIN_ID:
-        return
-    
-    # Get the message after the /broadcast command
-    msg_to_send = event.text.replace('/broadcast', '').strip()
-    if not msg_to_send:
-        return await event.reply("❌ **Usage:** `/broadcast [your message here]`")
+    if event.sender_id != config.ADMIN_ID: return
+    msg = event.text.replace('/broadcast', '').strip()
+    if not msg: return await event.reply("❌ Usage: `/broadcast [message]`")
     
     conn = database.get_connection(); cur = conn.cursor()
     cur.execute("SELECT user_id FROM subscribers"); users = cur.fetchall()
     cur.close(); conn.close()
     
     count = 0
-    await event.reply(f"🚀 **Starting broadcast to {len(users)} users...**")
-    
     for u in users:
         try:
-            await client.send_message(u[0], msg_to_send)
+            await client.send_message(u[0], msg)
             count += 1
-            await asyncio.sleep(0.05) # Prevent spam limits
-        except Exception:
-            continue
-            
-    await event.reply(f"✅ **Broadcast Finished!** Sent to {count} users.")
+            await asyncio.sleep(0.05)
+        except: continue
+    await event.reply(f"✅ Broadcast sent to {count} users.")
 
-# --- 3. RANDOM MESSAGE / ASSISTANT (Fixed) ---
+# --- 3. RANDOM MESSAGE ASSISTANT ---
 @client.on(events.NewMessage(incoming=True, func=lambda e: e.is_private))
-async def random_message_assistant(event):
-    # Only trigger if it's NOT a command and NOT the admin
-    if event.text.startswith('/') or event.sender_id == config.ADMIN_ID:
-        return
-
-    # This catches random text and offers help
-    assist_buttons = [[Button.inline("🎫 View Today's Ticket", data="trigger_start")]]
-    await event.reply("🤖 **Mr. White Assistant:** It looks like you're looking for information. Would you like to view today's ticket details?", buttons=assist_buttons)
+async def assistant(event):
+    if event.text.startswith('/') or event.sender_id == config.ADMIN_ID: return
+    btn = [[Button.inline("🎫 View Ticket Info", data="trigger_start")]]
+    await event.reply("🤖 **Mr. White Assistant:** Need help with today's ticket?", buttons=btn)
 
 @client.on(events.CallbackQuery(data="trigger_start"))
-async def cb_trigger_start(event):
-    await event.answer()
-    await start(event)
+async def cb_start(event):
+    await event.answer(); await start(event)
 
-# --- 4. INFORMATION & ADMIN CALLBACKS ---
+# --- 4. CALLBACKS & ADMIN APPROVAL ---
 @client.on(events.CallbackQuery(data="win_guarantee"))
-async def win_guarantee_handler(event):
-    await event.answer() 
-    await event.reply("🛡️ **Mr. White Win Guarantee**\n\nWe provide high-accuracy Correct Score selections with a 95%+ success rate.")
+async def win_guarantee(event):
+    await event.answer()
+    await event.reply("🛡️ **Mr. White Win Guarantee**\n95%+ success rate on Correct Scores.")
 
 @client.on(events.CallbackQuery(data="terms"))
-async def terms_handler(event):
+async def terms(event):
     await event.answer()
-    await event.reply("⚖️ **Terms of Service**\n\n1. All sales final.\n2. Claims verified manually.\n3. No reselling.")
+    await event.reply("⚖️ **Terms:** Sales final. No reselling.")
 
 @client.on(events.CallbackQuery(data="how_to_pay"))
-async def how_to_pay_handler(event):
+async def how_to_pay(event):
     await event.answer()
-    await event.reply("📖 **How to Pay:** Click the link, choose your currency, pay, and then click 'Claim'.")
+    await event.reply("📖 **How to Pay:** Link > Currency > Pay > 'I Have Paid'.")
 
 @client.on(events.CallbackQuery(data="claim_pay"))
 async def claim(event):
@@ -122,23 +131,20 @@ async def claim(event):
 async def admin_decision(event):
     if event.sender_id != config.ADMIN_ID: return
     await event.answer()
-    data = event.data.decode().split('_')
-    action, uid = data[0], int(data[1])
-    
-    if action == "app":
+    act, uid = event.data.decode().split('_')[0], int(event.data.decode().split('_')[1])
+    if act == "app":
         database.approve_user_24h(uid, "User")
-        await client.send_file(uid, config.TICKET_URL, caption="✅ **Payment Verified!** Your ticket is valid for 24 hours.")
+        await client.send_file(uid, config.TICKET_URL, caption="✅ **Payment Verified!** Ticket valid for 24h.")
         await event.edit(f"✅ User {uid} Approved.")
     else:
         await client.send_message(uid, "❌ **Payment Rejected.** Contact @Best_Admin24.")
         await event.edit(f"❌ User {uid} Rejected.")
 
-# --- 5. RUN ---
 async def main():
     try:
         await client.start(bot_token=config.BOT_TOKEN)
         database.init_db()
-        print("✅ Bot is online with Broadcast and Assistant enabled.")
+        print("✅ Bot is online with reinforced alerts.")
         await client.run_until_disconnected()
     except FloodWaitError as e:
         await asyncio.sleep(e.seconds); await main()
