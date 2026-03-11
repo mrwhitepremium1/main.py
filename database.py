@@ -3,7 +3,6 @@ import os
 from datetime import datetime, timedelta
 
 def get_connection():
-    # This pulls your Database URL directly from Railway's environment
     return psycopg2.connect(os.environ.get("DATABASE_URL"))
 
 def init_db():
@@ -41,12 +40,8 @@ def approve_user_24h(user_id, name):
     conn.close()
 
 def is_user_approved(user_id):
-    conn = get_connection()
-    cur = conn.cursor()
+    conn = get_connection(); cur = conn.cursor()
     cur.execute("SELECT expiry_time FROM approved_users WHERE user_id = %s", (user_id,))
     result = cur.fetchone()
-    cur.close()
-    conn.close()
-    if result and datetime.now() < result[0]:
-        return True
-    return False
+    cur.close(); conn.close()
+    return result and datetime.now() < result[0]
