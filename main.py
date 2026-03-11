@@ -65,14 +65,18 @@ async def broadcast(event):
 # --- 4. CLAIM & ADMIN DECISION ---
 @client.on(events.CallbackQuery(data="claim_pay"))
 async def claim(event):
+    # Fixed: Stops the loading spinner immediately
+    await event.answer("✅ Request sent to Admin.", alert=True)
+    
     user = await event.get_sender()
     btns = [[Button.inline("✅ Approve", data=f"app_{user.id}"), Button.inline("❌ Reject", data=f"rej_{user.id}")]]
     await client.send_message(config.ADMIN_ID, f"🚨 **New Claim!**\nUser: {user.first_name}\nID: `{user.id}`", buttons=btns)
-    await event.answer("✅ Request sent to Admin.", alert=True)
 
 @client.on(events.CallbackQuery(pattern=r"(app|rej)_(\d+)"))
 async def admin_decision(event):
     if event.sender_id != config.ADMIN_ID: return
+    await event.answer() # Stops loading spinner
+    
     action, uid = event.data.decode().split('_')[0], int(event.data.decode().split('_')[1])
     
     if action == "app":
@@ -84,12 +88,10 @@ async def admin_decision(event):
         await client.send_message(uid, "❌ **Payment Claim Rejected**\nPlease check details or contact @Best_Admin24.")
         await event.edit(f"❌ User {uid} Rejected.")
 
-# --- 5. THE AUTO-REPLY (Must be at the bottom) ---
+# --- 5. THE AUTO-REPLY ---
 @client.on(events.NewMessage(incoming=True, func=lambda e: e.is_private))
 async def auto_reply(event):
-    # Skip if it's a command
     if event.text.startswith('/'): return
-    # Skip if it's the Admin (to let you work in peace)
     if event.sender_id == config.ADMIN_ID: return
 
     reply_text = (
@@ -103,6 +105,8 @@ async def auto_reply(event):
 
 @client.on(events.CallbackQuery(data="show_start_logic"))
 async def show_start(event):
+    # Fixed: Stops the "Loading..." spinner immediately
+    await event.answer()
     await start(event)
 
 print("Bot is running...")
