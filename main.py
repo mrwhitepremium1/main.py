@@ -3,39 +3,8 @@ import config
 import database
 import os
 
-# Initialize the Client
 client = TelegramClient('bot_session', config.API_ID, config.API_HASH).start(bot_token=config.BOT_TOKEN)
-
-# Initialize Database
 database.init_db()
-
-# --- BROADCAST COMMAND (Admin Only) ---
-@client.on(events.NewMessage(pattern='/broadcast'))
-async def broadcast(event):
-    if event.sender_id != config.ADMIN_ID:
-        return
-    
-    msg_text = event.text.replace('/broadcast', '').strip()
-    if not msg_text:
-        await event.reply("❌ Please provide a message. Example: `/broadcast Hello!`")
-        return
-
-    conn = database.get_connection()
-    cur = conn.cursor()
-    cur.execute("SELECT user_id FROM subscribers")
-    users = cur.fetchall()
-    cur.close()
-    conn.close()
-
-    count = 0
-    await event.reply(f"🚀 Sending broadcast to {len(users)} users...")
-    for user in users:
-        try:
-            await client.send_message(user[0], msg_text)
-            count += 1
-        except:
-            continue
-    await event.reply(f"✅ Broadcast complete! Sent to {count} users.")
 
 # --- START COMMAND (Personalized + Visitor Alert) ---
 @client.on(events.NewMessage(pattern='/start'))
@@ -46,54 +15,65 @@ async def start(event):
     conn = database.get_connection()
     cur = conn.cursor()
     cur.execute("SELECT user_id FROM subscribers WHERE user_id = %s", (user.id,))
-    existing_user = cur.fetchone()
-    
-    if not existing_user:
+    if not cur.fetchone():
         cur.execute("INSERT INTO subscribers (user_id, username) VALUES (%s, %s)", (user.id, user.username))
         conn.commit()
         cur.execute("SELECT COUNT(*) FROM subscribers")
-        total_users = cur.fetchone()[0]
+        total = cur.fetchone()[0]
         
-        visitor_alert = (
-            "👤 **New Visitor Alert!**\n\n"
-            f"**Name:** {first_name}\n"
-            f"**Username:** @{user.username if user.username else 'N/A'}\n"
-            f"**ID:** `{user.id}`\n\n"
-            f"📈 **Total Users:** {total_users}"
-        )
-        await client.send_message(config.ADMIN_ID, visitor_alert)
+        # Notify Admin of NEW visitor
+        await client.send_message(config.ADMIN_ID, f"👤 **New Visitor Alert!**\n\nName: {first_name}\nUsername: @{user.username}\n📈 Total Users: {total}")
 
     cur.close()
     conn.close()
 
-    buttons = [
-        [Button.url("💳 Pay via Selar", config.SELAR_PAYMENT_LINK)],
-        [Button.inline("✅ I Have Paid (Claim)", data="claim_pay")]
-    ]
+    buttons = [[Button.url("💳 Pay via Selar", config.SELAR_PAYMENT_LINK)],
+               [Button.inline("✅ I Have Paid (Claim)", data="claim_pay")]]
     
-    welcome_text = (
-        f"Hello 👋 {first_name}!\n\n"
-        "**Welcome to Mr. White | Official Bot**\n\n"
-        "💎 **NEW INFO ARRIVED**\n"
-        "━━━━━━━━━━━━━━━━━━━\n"
-        "⭐ **CONFIRMED TICKET** 🎫\n"
-        "☑ **Fixed Tips:** Correct Score\n"
-        "✔ **Safe:** 💯 Guaranteed\n\n"
-        "To see today's full uncovered ticket, please pay via the link below and click 'Claim'."
-    )
-
+    welcome_text = (f"Hello 👋 {first_name}!\n\n**Welcome to Mr. White | Official Bot**\n\n"
+                    "💎 **NEW INFO ARRIVED**\n━━━━━━━━━━━━━━━━━━━\n"
+                    "⭐ **CONFIRMED TICKET** 🎫\n☑ **Fixed Tips:** Correct Score\n✔ **Safe:** 💯 Guaranteed\n\n"
+                    "To see today's full uncovered ticket, please pay via the link and click 'Claim'.")
+    
     await client.send_file(event.chat_id, config.COVERED_TICKET_URL, caption=welcome_text, buttons=buttons)
 
-# --- CLAIM BUTTON ---
+# --- MENU COMMANDS ---
+@client.on(events.NewMessage(pattern='/support'))
+async def support(event):
+    await event.reply("👋 **Need help?**\n\nContact our official admin: @Best_Admin24")
+
+@client.on(events.NewMessage(pattern='/status'))
+async def status(event):
+    if database.is_user_approved(event.sender_id):
+        await event.reply("✅ **Active:** You have full access for 24 hours.")
+    else:
+        await event.reply("❌ **Inactive:** No active ticket found. Use /start to buy.")
+
+# --- BROADCAST (Admin Only) ---
+@client.on(events.NewMessage(pattern='/broadcast'))
+async def broadcast(event):
+    if event.sender_id != config.ADMIN_ID: return
+    msg = event.text.replace('/broadcast', '').strip()
+    if not msg: return await event.reply("❌ Usage: /broadcast [message]")
+
+    conn = database.get_connection(); cur = conn.cursor()
+    cur.execute("SELECT user_id FROM subscribers"); users = cur.fetchall()
+    cur.close(); conn.close()
+
+    count = 0
+    for u in users:
+        try: await client.send_message(u[0], msg); count += 1
+        except: continue
+    await event.reply(f"✅ Broadcast sent to {count} users.")
+
+# --- CLAIM & ADMIN DECISION ---
 @client.on(events.CallbackQuery(data="claim_pay"))
 async def claim(event):
     user = await event.get_sender()
-    name = f"{user.first_name} {user.last_name or ''}"
-    admin_buttons = [[Button.inline("✅ Approve", data=f"app_{user.id}"), Button.inline("❌ Reject", data=f"rej_{user.id}")]]
-    await client.send_message(config.ADMIN_ID, f"🚨 **New Payment Claim!**\n\nUser: **{name}**\nUsername: @{user.username}", buttons=admin_buttons)
-    await event.answer("✅ Request sent! Please wait for admin verification.", alert=True)
+    btns = [[Button.inline("✅ Approve", data=f"app_{user.id}"), Button.inline("❌ Reject", data=f"rej_{user.id}")]]
+    await client.send_message(config.ADMIN_ID, f"🚨 **New Claim!**\nUser: {user.first_name}\nID: `{user.id}`", buttons=btns)
+    await event.answer("✅ Request sent to Admin.", alert=True)
 
-# --- ADMIN DECISION ---
 @client.on(events.CallbackQuery(pattern=r"(app|rej)_(\d+)"))
 async def admin_decision(event):
     if event.sender_id != config.ADMIN_ID: return
@@ -101,21 +81,11 @@ async def admin_decision(event):
     
     if action == "app":
         database.approve_user_24h(uid, "User")
-        success_caption = (
-            "✅ **Payment Verified**\n\n"
-            "Your ticket has been successfully issued and is valid for 24 hours.\n\n"
-            "For any issues or inquiries, please contact: @Best_Admin24"
-        )
-        await client.send_file(uid, config.TICKET_URL, caption=success_caption)
+        cap = "✅ **Payment Verified**\n\nYour ticket is issued (24h valid).\nContact: @Best_Admin24"
+        await client.send_file(uid, config.TICKET_URL, caption=cap)
         await event.edit(f"✅ User {uid} Approved.")
     else:
-        # Your specific Rejection Message
-        reject_text = (
-            "❌ **Payment Claim Rejected**\n\n"
-            "Your payment could not be verified. Please check your payment details "
-            "and try again or contact @Best_Admin24 for assistance."
-        )
-        await client.send_message(uid, reject_text)
+        await client.send_message(uid, "❌ **Payment Claim Rejected**\nPlease check details or contact @Best_Admin24.")
         await event.edit(f"❌ User {uid} Rejected.")
 
 print("Bot is running...")
