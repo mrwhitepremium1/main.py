@@ -5,7 +5,6 @@ from datetime import datetime, timedelta
 DATABASE_URL = os.environ.get("DATABASE_URL")
 
 def get_connection():
-    # Force SSL for Railway and use the direct URL
     return psycopg2.connect(DATABASE_URL, sslmode='require')
 
 def init_db():
@@ -22,9 +21,7 @@ def init_db():
     conn.commit()
     cur.close()
     conn.close()
-    print("✅ Database initialized successfully!")
 
-# THIS IS THE MISSING PART CAUSING YOUR ERROR
 def approve_user_24h(user_id, username):
     expiry = datetime.now() + timedelta(hours=24)
     conn = get_connection()
@@ -37,12 +34,3 @@ def approve_user_24h(user_id, username):
     conn.commit()
     cur.close()
     conn.close()
-
-def get_active_users():
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute("SELECT user_id FROM subscribers WHERE status = 'active' AND expiry_time > NOW()")
-    users = [row[0] for row in cur.fetchall()]
-    cur.close()
-    conn.close()
-    return users
