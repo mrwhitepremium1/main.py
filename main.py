@@ -21,7 +21,6 @@ async def start(event):
         conn.commit()
         cur.execute("SELECT COUNT(*) FROM subscribers")
         total = cur.fetchone()[0]
-        # Admin Notification
         await client.send_message(config.ADMIN_ID, f"👤 **New Visitor Alert!**\n\nName: {first_name}\nUsername: @{user.username}\n📈 Total Users: {total}")
     cur.close(); conn.close()
 
@@ -39,35 +38,11 @@ async def start(event):
     
     await client.send_file(event.chat_id, config.COVERED_TICKET_URL, caption=welcome_text, buttons=buttons)
 
-# --- 2. OFFICIAL PRICE LIST ---
-@client.on(events.NewMessage(pattern='/price'))
-async def price(event):
-    price_text = (
-        "🌍 **Mr. White Official Price List**\n"
-        "*(Daily Access - Correct Score Ticket)*\n\n"
-        "🇺🇸 **USD:** $20\n"
-        "🇬🇭 **GHS:** 150 GHS\n"
-        "🇳🇬 **NGN:** 20,000 NGN\n"
-        "🇰🇪 **KES:** 2,000 KES\n"
-        "🇿🇦 **ZAR:** 300 ZAR\n"
-        "🇬🇧 **GBP:** £20\n"
-        "🇿🇲 **ZMW:** 300 ZMW\n"
-        "💶 **CFA:** 10,000 XAF/XOF\n\n"
-        "✅ *Don't see your currency? Click below:* "
-    )
-    buttons = [
-        [Button.inline("❓ My country is not listed", data="not_listed")],
-        [Button.inline("📖 How to Pay", data="how_to_pay")],
-        [Button.url("💳 Proceed to Payment", config.SELAR_PAYMENT_LINK)]
-    ]
-    await event.reply(price_text, buttons=buttons)
-
-# --- 3. UPDATED INFORMATION CALLBACKS ---
+# --- 2. INFORMATION CALLBACKS (Matched to your Screenshots) ---
 
 @client.on(events.CallbackQuery(data="win_guarantee"))
 async def win_guarantee_handler(event):
-    await event.answer() # Clears loading spinner
-    # Exact wording from screenshot
+    await event.answer()
     guarantee_text = (
         "🛡️ **Mr. White Win Guarantee**\n\n"
         "We pride ourselves on delivering high-accuracy Correct Score selections. "
@@ -76,12 +51,11 @@ async def win_guarantee_handler(event):
         "• **Transparency:** We do not delete past results; we let our history speak for itself.\n"
         "• **Risk Note:** While our accuracy is industry-leading, betting involves risk. We advise responsible play."
     )
-    await event.reply(guarantee_text)
+    await event.reply(guarantee_text) #
 
 @client.on(events.CallbackQuery(data="terms"))
 async def terms_handler(event):
-    await event.answer() # Clears loading spinner
-    # Exact wording from screenshot
+    await event.answer()
     terms_text = (
         "⚖️ **Terms of Service**\n\n"
         "By utilizing Mr. White Official Bot services, you agree to the following:\n\n"
@@ -92,27 +66,37 @@ async def terms_handler(event):
         "3. **Confidentiality:** Sharing or reselling purchased tickets is strictly prohibited "
         "and will result in the immediate termination of access."
     )
-    await event.reply(terms_text)
+    await event.reply(terms_text) #
 
-@client.on(events.CallbackQuery(data="how_to_pay"))
-async def how_to_pay(event):
-    await event.answer()
-    guide = (
-        "📖 **How to Pay Guide**\n\n"
-        "1️⃣ Click the **Pay** link.\n"
-        "2️⃣ Select your currency & payment method.\n"
-        "3️⃣ Complete payment on the secure Selar page.\n"
-        "4️⃣ Return here and click '**I Have Paid (Claim)**'.\n"
-        "5️⃣ Wait for admin verification to receive your ticket."
+# --- 3. VICTORY BROADCAST COMMAND (New!) ---
+@client.on(events.NewMessage(pattern='/victory'))
+async def victory_broadcast(event):
+    if event.sender_id != config.ADMIN_ID: return
+    details = event.text.replace('/victory', '').strip()
+    if not details: return await event.reply("❌ Usage: /victory [Match Details | Score]")
+    
+    victory_msg = (
+        "🏆 **BOOOOM! MATCH WON!** 🏆\n\n"
+        f"✅ **Match:** {details}\n"
+        "📈 **Success Rate:** 95%+ Accuracy Maintained\n\n"
+        "**Congratulations to all our winners!** 💰💰💰\n"
+        "Type /start to secure the next ticket."
     )
-    await event.reply(guide)
+    
+    conn = database.get_connection(); cur = conn.cursor()
+    cur.execute("SELECT user_id FROM subscribers"); users = cur.fetchall()
+    cur.close(); conn.close()
+    
+    count = 0
+    for u in users:
+        try:
+            await client.send_message(u[0], victory_msg)
+            count += 1
+            await asyncio.sleep(0.05) # Prevent flood
+        except: continue
+    await event.reply(f"✅ Victory announced to {count} users.")
 
-@client.on(events.CallbackQuery(data="not_listed"))
-async def not_listed(event):
-    await event.answer()
-    await event.reply("🌍 **Global Support**\n\nSelar supports 190+ countries. It will auto-convert $20 USD to your local currency at checkout.")
-
-# --- 4. PAYMENT CLAIM & ADMIN ---
+# --- 4. ADMIN & AUTO-REPLY LOGIC ---
 @client.on(events.CallbackQuery(data="claim_pay"))
 async def claim(event):
     await event.answer("✅ Request sent to Admin.", alert=True)
@@ -133,21 +117,7 @@ async def admin_decision(event):
         await client.send_message(uid, "❌ **Payment Rejected.** Contact @Best_Admin24.")
         await event.edit(f"❌ User {uid} Rejected.")
 
-# --- 5. AUTO-REPLY LOGIC ---
-@client.on(events.NewMessage(incoming=True, func=lambda e: e.is_private))
-async def auto_reply(event):
-    if event.text.startswith('/') or event.sender_id == config.ADMIN_ID: return
-    buttons = [[Button.inline("🎫 View Ticket", data="show_start_logic")],
-               [Button.inline("💰 Price List", data="show_price_logic")]]
-    await event.reply("🤖 **Mr. White Assistant:** How can I help you today?", buttons=buttons)
-
-@client.on(events.CallbackQuery(data="show_start_logic"))
-async def cb_start(event): await event.answer(); await start(event)
-
-@client.on(events.CallbackQuery(data="show_price_logic"))
-async def cb_price(event): await event.answer(); await price(event)
-
-# --- 6. RESILIENT STARTUP ---
+# --- 5. RESILIENT STARTUP ---
 async def main():
     try:
         await client.start(bot_token=config.BOT_TOKEN)
