@@ -20,7 +20,6 @@ async def start(event):
         conn.commit()
     cur.close(); conn.close()
 
-    # Updated button text to refer users to Selar for pricing
     buttons = [
         [Button.url("💳 Check Price & Buy Ticket", config.SELAR_PAYMENT_LINK)],
         [Button.inline("🛡️ Win Guarantee", data="win_guarantee"), Button.inline("⚖️ Terms", data="terms")],
@@ -43,7 +42,6 @@ To see today's full ticket, please check the price and buy your ticket via the l
 
 @client.on(events.NewMessage(pattern='/status'))
 async def status_cmd(event):
-    # Checks database for 24h active purchase status
     if database.is_user_approved(event.sender_id):
         await event.reply("📊 **Status:** Your access is **ACTIVE**. You have full access to current tickets.")
     else:
@@ -53,50 +51,71 @@ async def status_cmd(event):
 async def support_cmd(event):
     await event.reply("👋 **Support:** Contact @Best_Admin24 for assistance.")
 
-# --- 2. INFORMATION BUTTONS ---
+# --- 2. THE BROADCAST COMMAND (Fixed) ---
+@client.on(events.NewMessage(pattern='/broadcast'))
+async def broadcast_cmd(event):
+    if event.sender_id != config.ADMIN_ID:
+        return
+    
+    # Get the message after the /broadcast command
+    msg_to_send = event.text.replace('/broadcast', '').strip()
+    if not msg_to_send:
+        return await event.reply("❌ **Usage:** `/broadcast [your message here]`")
+    
+    conn = database.get_connection(); cur = conn.cursor()
+    cur.execute("SELECT user_id FROM subscribers"); users = cur.fetchall()
+    cur.close(); conn.close()
+    
+    count = 0
+    await event.reply(f"🚀 **Starting broadcast to {len(users)} users...**")
+    
+    for u in users:
+        try:
+            await client.send_message(u[0], msg_to_send)
+            count += 1
+            await asyncio.sleep(0.05) # Prevent spam limits
+        except Exception:
+            continue
+            
+    await event.reply(f"✅ **Broadcast Finished!** Sent to {count} users.")
 
+# --- 3. RANDOM MESSAGE / ASSISTANT (Fixed) ---
+@client.on(events.NewMessage(incoming=True, func=lambda e: e.is_private))
+async def random_message_assistant(event):
+    # Only trigger if it's NOT a command and NOT the admin
+    if event.text.startswith('/') or event.sender_id == config.ADMIN_ID:
+        return
+
+    # This catches random text and offers help
+    assist_buttons = [[Button.inline("🎫 View Today's Ticket", data="trigger_start")]]
+    await event.reply("🤖 **Mr. White Assistant:** It looks like you're looking for information. Would you like to view today's ticket details?", buttons=assist_buttons)
+
+@client.on(events.CallbackQuery(data="trigger_start"))
+async def cb_trigger_start(event):
+    await event.answer()
+    await start(event)
+
+# --- 4. INFORMATION & ADMIN CALLBACKS ---
 @client.on(events.CallbackQuery(data="win_guarantee"))
 async def win_guarantee_handler(event):
     await event.answer() 
-    text = """🛡️ **Mr. White Win Guarantee**
-
-We pride ourselves on delivering high-accuracy Correct Score selections.
-
-• **Verified Results:** Every ticket is recorded and verified post-match.
-• **Transparency:** We do not delete past results.
-• **Risk Note:** Betting involves risk. We advise responsible play."""
-    await event.reply(text)
+    await event.reply("🛡️ **Mr. White Win Guarantee**\n\nWe provide high-accuracy Correct Score selections with a 95%+ success rate.")
 
 @client.on(events.CallbackQuery(data="terms"))
 async def terms_handler(event):
     await event.answer()
-    text = """⚖️ **Terms of Service**
-
-By utilizing Mr. White Official Bot services, you agree to the following:
-
-1. **Final Sale:** All ticket purchases are final.
-2. **Verification:** Claims are subject to manual admin verification.
-3. **Confidentiality:** Sharing or reselling tickets is strictly prohibited."""
-    await event.reply(text)
+    await event.reply("⚖️ **Terms of Service**\n\n1. All sales final.\n2. Claims verified manually.\n3. No reselling.")
 
 @client.on(events.CallbackQuery(data="how_to_pay"))
 async def how_to_pay_handler(event):
     await event.answer()
-    guide = """📖 **How to Pay Guide**
-1️⃣ Click the **Check Price & Buy Ticket** link.
-2️⃣ Select your currency at the top of the page.
-3️⃣ Enter your details and pay.
-4️⃣ Return here and click 'I Have Paid (Claim)'."""
-    await event.reply(guide)
-
-# --- 3. ADMIN ACTIONS ---
+    await event.reply("📖 **How to Pay:** Click the link, choose your currency, pay, and then click 'Claim'.")
 
 @client.on(events.CallbackQuery(data="claim_pay"))
 async def claim(event):
     await event.answer("✅ Request sent to Admin.", alert=True)
     user = await event.get_sender()
-    btns = [[Button.inline("✅ Approve", data=f"app_{user.id}"), 
-             Button.inline("❌ Reject", data=f"rej_{user.id}")]]
+    btns = [[Button.inline("✅ Approve", data=f"app_{user.id}"), Button.inline("❌ Reject", data=f"rej_{user.id}")]]
     await client.send_message(config.ADMIN_ID, f"🚨 **New Claim!**\nUser: {user.first_name}\nID: `{user.id}`", buttons=btns)
 
 @client.on(events.CallbackQuery(pattern=r"(app|rej)_(\d+)"))
@@ -108,25 +127,18 @@ async def admin_decision(event):
     
     if action == "app":
         database.approve_user_24h(uid, "User")
-        success_msg = """✅ **Payment Verified**
-
-Your ticket has been successfully issued and is valid for 24 hours.
-For any issues or inquiries, /support"""
-        await client.send_file(uid, config.TICKET_URL, caption=success_msg)
+        await client.send_file(uid, config.TICKET_URL, caption="✅ **Payment Verified!** Your ticket is valid for 24 hours.")
         await event.edit(f"✅ User {uid} Approved.")
     else:
-        reject_msg = """❌ **Payment Claim Rejected**
-
-Your payment could not be verified. Please check your details or contact @Best_Admin24."""
-        await client.send_message(uid, reject_msg)
+        await client.send_message(uid, "❌ **Payment Rejected.** Contact @Best_Admin24.")
         await event.edit(f"❌ User {uid} Rejected.")
 
-# --- 4. STARTUP ---
+# --- 5. RUN ---
 async def main():
     try:
         await client.start(bot_token=config.BOT_TOKEN)
         database.init_db()
-        print("✅ Bot is online.")
+        print("✅ Bot is online with Broadcast and Assistant enabled.")
         await client.run_until_disconnected()
     except FloodWaitError as e:
         await asyncio.sleep(e.seconds); await main()
