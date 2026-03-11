@@ -1,27 +1,11 @@
-import os
-import json
-import hmac
-import hashlib
-import requests
-from datetime import date
+import asyncio
+from fastapi import FastAPI, Request
 from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from fastapi import FastAPI, Request
-import database  # Your local database.py file
-import config    # Your local config.py file
+import config
 
-# -----------------------
-# FastAPI App
-# -----------------------
 app = FastAPI()
 
-@app.get("/")
-async def home():
-    return {"status": "Bot is running"}
-
-# -----------------------
-# Telegram Bot Client
-# -----------------------
 bot = Client(
     "ticket_bot",
     api_id=int(config.API_ID),
@@ -30,135 +14,78 @@ bot = Client(
 )
 
 # -----------------------
-# /start Command
+# START COMMAND
 # -----------------------
+
 @bot.on_message(filters.command("start"))
 async def start(client, message):
+
     keyboard = InlineKeyboardMarkup(
-        [[InlineKeyboardButton("💳 Buy Ticket ¢150", callback_data="buy_ticket")]]
+        [
+            [InlineKeyboardButton("💳 Buy Ticket ¢150", url=config.SELAR_PAYMENT_LINK)]
+        ]
     )
 
     caption = (
-        "🎉 WELCOME to Victory Odds Premium Ticket Bot!\n\n"
-        "You can access a DAILY PREMIUM TICKET with exclusive tips.\n\n"
-        "💡 HOW TO USE:\n"
-        "1️⃣ Click the button below to purchase today’s ticket\n"
-        "2️⃣ Complete the payment securely via Paystack\n"
-        "3️⃣ Receive your ticket instantly!\n\n"
-        "📌 NOTE: Tickets are available once per day per user\n"
-        "⚡ Stay updated for daily premium ticket!"
+        "🔥 **Welcome to Victory Odds Premium Bot!**\n\n"
+        "Today's premium ticket is available.\n\n"
+        "Click the button below to purchase today's ticket."
     )
 
     await message.reply_photo(
-        photo=config.TICKET_URL,
+        photo=config.TICKET_IMAGE,
         caption=caption,
         reply_markup=keyboard
     )
 
 # -----------------------
-# Buy Ticket Button
+# SELAR WEBHOOK
 # -----------------------
-@bot.on_callback_query(filters.regex("buy_ticket"))
-async def buy_button(client, callback_query):
-    user_id = callback_query.from_user.id
 
-    if database.is_paid(user_id):
-        await callback_query.answer("✅ You already purchased today.", show_alert=True)
-        return
+@app.post("/selar-webhook")
+async def selar_webhook(request: Request):
 
-    # Initialize Paystack transaction
-    url = "https://api.paystack.co/transaction/initialize"
-    headers = {
-        "Authorization": f"Bearer {config.PAYSTACK_SECRET_KEY}",
-        "Content-Type": "application/json"
-    }
-    data = {
-        "email": f"user{user_id}@telegram.com",
-        "amount": 15000,  # ¢150 in kobo
-        "metadata": {"user_id": user_id}
-    }
+    data = await request.json()
 
-    response = requests.post(url, headers=headers, json=data)
-    res = response.json()
+    # Example Selar payload
+    email = data.get("customer_email")
+    telegram_id = data.get("custom_fields", {}).get("telegram_id")
 
-    if res.get("status"):
-        payment_link = res["data"]["authorization_url"]
-        keyboard = InlineKeyboardMarkup(
-            [[InlineKeyboardButton("Mobile Money/ Debit Card", url=payment_link)]]
-        )
-        await callback_query.message.edit_text(
-            "Click the button below to pay and get your ticket:",
-            reply_markup=keyboard
-        )
-    else:
-        await callback_query.answer("❌ Payment initialization failed.", show_alert=True)
-
-# -----------------------
-# Paystack Webhook
-# -----------------------
-@app.post("/paystack-webhook")
-async def paystack_webhook(request: Request):
-    payload = await request.body()
-    signature = request.headers.get("x-paystack-signature")
-
-    # Verify signature
-    computed = hmac.new(
-        config.PAYSTACK_SECRET_KEY.encode("utf-8"),
-        payload,
-        hashlib.sha512
-    ).hexdigest()
-
-    if computed != signature:
-        return {"status": "invalid signature"}
-
-    event = json.loads(payload)
-
-    # Payment Success
-    if event.get("event") == "charge.success":
-        user_id = int(event["data"]["metadata"]["user_id"])
-        reference = event["data"]["reference"]
-        amount = event["data"]["amount"]
-
-        database.mark_paid(user_id)
-        database.add_payment(user_id, reference, amount, "success")
-
-        await bot.send_photo(user_id, config.TICKET_URL)
-
-    # Payment Failed
-    elif event.get("event") == "charge.failed":
-        user_id = int(event["data"]["metadata"]["user_id"])
-        await bot.send_message(user_id, "❌ Your payment failed. Please try again.")
+    if telegram_id:
+        try:
+            await bot.send_photo(
+                chat_id=int(telegram_id),
+                photo=config.TICKET_IMAGE,
+                caption="✅ Payment received!\n\nHere is today's premium ticket 🎟"
+            )
+        except:
+            pass
 
     return {"status": "success"}
 
 # -----------------------
-# Admin Commands
+# ADMIN BROADCAST
 # -----------------------
+
+users = set()
+
 @bot.on_message(filters.command("broadcast") & filters.user(config.ADMIN_ID))
 async def broadcast(client, message):
-    if len(message.text.split(" ", 1)) < 2:
-        await message.reply_text("Usage: /broadcast Your message here")
-        return
-    text = message.text.split(" ", 1)[1]
 
-    all_users = database.get_all_users()
-    for user_id in all_users:
+    text = message.text.split(None, 1)[1]
+
+    for user in users:
         try:
-            await bot.send_message(user_id, text)
+            await bot.send_message(user, text)
         except:
-            continue
-    await message.reply_text("✅ Broadcast sent.")
+            pass
 
-@bot.on_message(filters.command("stats") & filters.user(config.ADMIN_ID))
-async def stats(client, message):
-    cursor = database.cursor
-    cursor.execute("SELECT COUNT(*) FROM users WHERE last_purchase = date('now')")
-    count = cursor.fetchone()[0]
-    await message.reply_text(f"📊 Users who purchased today: {count}")
+    await message.reply_text("Broadcast sent.")
 
 # -----------------------
-# Startup & Shutdown Events
+# BOT STARTUP
 # -----------------------
+
 @app.on_event("startup")
 async def startup():
     await bot.start()
