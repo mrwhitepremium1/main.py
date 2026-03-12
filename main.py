@@ -5,9 +5,9 @@ import config, database, asyncio, time
 from datetime import datetime
 
 logging.basicConfig(level=logging.INFO)
-client = TelegramClient('mr_white_final_v24', config.API_ID, config.API_HASH)
+client = TelegramClient('mr_white_final_v25', config.API_ID, config.API_HASH)
 
-# --- 1. TYPO-PROOF BROADCAST ---
+# --- 1. TYPO-PROOF BROADCAST (Supports /broadcast and /boardcast) ---
 @client.on(events.NewMessage(pattern=r'/(broadcast|boardcast)(.*)'))
 async def broadcast(event):
     if event.sender_id != config.ADMIN_ID:
@@ -44,7 +44,7 @@ async def start(event):
     cur.execute("INSERT INTO subscribers (user_id, username) VALUES (%s, %s) ON CONFLICT DO NOTHING", (user.id, user.username))
     conn.commit()
     cur.execute("SELECT COUNT(*) FROM subscribers"); total = cur.fetchone()[0]
-    await client.send_message(config.ADMIN_ID, f"👤 **New Visitor Alert!**\nName: {first_name}\nID: `{user.id}`\nTotal: {total}")
+    await client.send_message(config.ADMIN_ID, f"👤 **New Visitor!**\nName: {first_name}\nID: `{user.id}`\nTotal: {total}")
     cur.close(); conn.close()
     buttons = [
         [Button.url("💳 Check Price & Buy Ticket", config.SELAR_PAYMENT_LINK)],
@@ -55,19 +55,19 @@ async def start(event):
     ts_url = f"{config.COVERED_TICKET_URL}?v={int(time.time())}"
     await client.send_file(event.chat_id, ts_url, caption=welcome_text, buttons=buttons)
 
-# --- 3. STATUS & SUPPORT ---
+# --- 3. UPDATED STATUS & SUPPORT ---
 @client.on(events.NewMessage(pattern='/status'))
 async def status_cmd(event):
     if database.is_user_approved(event.sender_id):
-        await event.reply("📊 **Status: ACTIVE** ✅")
+        await event.reply("📊 **Status: Active 🤝**\n\nYour subscription is currently active.")
     else:
-        await event.reply("📊 **Status: INACTIVE** ❌")
+        await event.reply("📊 **Status: Inactive ❌**\n\nYour subscription is currently inactive.\nPlease purchase a ticket to activate your access.")
 
 @client.on(events.NewMessage(pattern='/support'))
 async def support_cmd(event):
     await event.reply("💬 **You’re now connected to support.**\nKindly explain your issue clearly Mr. White is listening. 🎯")
 
-# --- 4. LIVE CHAT & OFFLINE MODE (12AM-5AM) ---
+# --- 4. LIVE CHAT & OFFLINE AUTO-REPLY (12AM-5AM) ---
 @client.on(events.NewMessage(incoming=True))
 async def forward_to_admin(event):
     if event.is_private and not event.raw_text.startswith('/') and event.sender_id != config.ADMIN_ID:
@@ -88,10 +88,12 @@ async def admin_reply(event):
         await event.reply(f"✅ Reply sent to `{user_id}`")
     except Exception as e: await event.reply(f"❌ Error: {e}")
 
-# --- 6. BUTTON CALLBACKS (Updated Terms) ---
+# --- 6. UPDATED BUTTON CALLBACKS (Win Guarantee & Terms) ---
 @client.on(events.CallbackQuery(data="win_guarantee"))
 async def wg(event):
-    await event.answer(); await event.reply("🛡️ **95%+ Accuracy Guaranteed.**\nEvery ticket is analyzed and verified post-match.")
+    await event.answer()
+    wg_text = "🛡️ **Mr. White Win Guarantee**\n\nWe take pride in delivering high-accuracy Correct Score selections.\nOur team conducts deep analysis and research on every match to provide carefully selected tips with a target accuracy of 95%+.\n\nOur goal is simple: consistency, transparency, and long-term trust with every subscriber."
+    await event.reply(wg_text)
 
 @client.on(events.CallbackQuery(data="terms"))
 async def tr(event):
@@ -106,7 +108,7 @@ async def claim(event):
     btns = [[Button.inline("✅ Approve", data=f"app_{user.id}"), Button.inline("❌ Reject", data=f"rej_{user.id}")]]
     await client.send_message(config.ADMIN_ID, f"🚨 **New Claim!**\nUser: {user.first_name}\nID: `{user.id}`", buttons=btns)
 
-# --- 7. ADMIN ACTIONS (Updated Messages) ---
+# --- 7. UPDATED ADMIN ACTIONS (Verification & Rejection) ---
 @client.on(events.CallbackQuery(pattern=r"(app|rej)_(\d+)"))
 async def admin_decision(event):
     if event.sender_id != config.ADMIN_ID: return
@@ -127,7 +129,7 @@ async def main():
     try:
         await client.start(bot_token=config.BOT_TOKEN)
         database.init_db()
-        await client.send_message(config.ADMIN_ID, "🚀 **Bot Updated: New Terms & Messages Active.**")
+        await client.send_message(config.ADMIN_ID, "🚀 **Bot Updated! All new professional messages are live.**")
         await client.run_until_disconnected()
     except FloodWaitError as e:
         await asyncio.sleep(e.seconds); await main()
