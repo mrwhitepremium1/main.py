@@ -5,7 +5,7 @@ import config, database, asyncio, time
 from datetime import datetime, timedelta
 
 logging.basicConfig(level=logging.INFO)
-client = TelegramClient('mr_white_v28_final', config.API_ID, config.API_HASH)
+client = TelegramClient('mr_white_v29_fixed', config.API_ID, config.API_HASH)
 
 # --- 1. MULTI-LINE BROADCAST & AUTO-CLEAN ---
 @client.on(events.NewMessage(pattern=r'/(broadcast|boardcast)([\s\S]*)'))
@@ -19,7 +19,7 @@ async def broadcast(event):
     conn = database.get_connection(); cur = conn.cursor()
     cur.execute("SELECT user_id FROM subscribers"); users = cur.fetchall()
     cur.close(); conn.close()
-    progress_msg = await event.reply(f"📣 **Broadcasting to {len(users)} users...**")
+    progress_msg = await event.reply(f"📣 **Broadcasting...**")
     success_count = 0; blocked_count = 0
     for user in users:
         uid = user[0]
@@ -36,26 +36,27 @@ async def broadcast(event):
         except Exception: continue
     await progress_msg.edit(f"✅ **Broadcast complete!**\nSent: **{success_count}**\nRemoved: **{blocked_count}**")
 
-# --- 2. START COMMAND (Alerts + Last Seen) ---
+# --- 2. START COMMAND (Fixed Alert & Tracking) ---
 @client.on(events.NewMessage(pattern='/start'))
 async def start(event):
     user = await event.get_sender()
     first_name = user.first_name if user.first_name else "Winner"
-    current_time_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    now = datetime.now()
     
     conn = database.get_connection(); cur = conn.cursor()
+    # This logic handles both new visitors and returning ones
     cur.execute("""
         INSERT INTO subscribers (user_id, username, last_seen) 
         VALUES (%s, %s, %s) 
         ON CONFLICT (user_id) DO UPDATE SET last_seen = EXCLUDED.last_seen, username = EXCLUDED.username
-    """, (user.id, user.username, datetime.now()))
+    """, (user.id, user.username, now))
     conn.commit()
     cur.execute("SELECT COUNT(*) FROM subscribers"); total = cur.fetchone()[0]
     cur.close(); conn.close()
 
-    # Admin Alert
+    # Admin Notification
     alert = (f"👤 **Visitor Alert!**\nName: {first_name}\nUsername: @{user.username if user.username else 'N/A'}\n"
-             f"ID: `{user.id}`\nTime: `{current_time_str}`\nTotal Users: {total}")
+             f"ID: `{user.id}`\nTime: `{now.strftime('%Y-%m-%d %H:%M:%S')}`\nTotal Users: {total}")
     await client.send_message(config.ADMIN_ID, alert)
 
     buttons = [[Button.url("💳 Check Price & Buy Ticket", config.SELAR_PAYMENT_LINK)],
@@ -94,7 +95,7 @@ async def status_cmd(event):
 async def support_cmd(event):
     await event.reply("💬 **You’re now connected to support.**\nKindly explain your issue clearly Mr. White is listening. 🎯")
 
-# --- 5. LIVE CHAT & OFFLINE AUTO-REPLY ---
+# --- 5. LIVE CHAT & OFFLINE MODE ---
 @client.on(events.NewMessage(incoming=True))
 async def forward_to_admin(event):
     if event.is_private and not event.raw_text.startswith('/') and event.sender_id != config.ADMIN_ID:
@@ -113,7 +114,7 @@ async def admin_reply(event):
         await event.reply(f"✅ Reply sent to `{user_id}`")
     except Exception: await event.reply("❌ Error: User may have blocked the bot.")
 
-# --- 7. CALLBACKS (WIN GUARANTEE & TERMS) ---
+# --- 7. CALLBACKS ---
 @client.on(events.CallbackQuery(data="win_guarantee"))
 async def wg(event):
     await event.answer(); await event.reply("🛡️ **Mr. White Win Guarantee**\n\nWe take pride in delivering high-accuracy Correct Score selections.\nOur team conducts deep analysis and research on every match to provide carefully selected tips with a target accuracy of 95%+.\n\nOur goal is simple: consistency, transparency, and long-term trust with every subscriber.")
@@ -129,7 +130,7 @@ async def claim(event):
     btns = [[Button.inline("✅ Approve", data=f"app_{user.id}"), Button.inline("❌ Reject", data=f"rej_{user.id}")]]
     await client.send_message(config.ADMIN_ID, f"🚨 **New Claim!**\nUser: {user.first_name}\nID: `{user.id}`", buttons=btns)
 
-# --- 8. ADMIN ACTIONS (APPROVED & REJECTED) ---
+# --- 8. ADMIN ACTIONS ---
 @client.on(events.CallbackQuery(pattern=r"(app|rej)_(\d+)"))
 async def admin_decision(event):
     if event.sender_id != config.ADMIN_ID: return
@@ -142,11 +143,18 @@ async def admin_decision(event):
         await client.send_message(uid, "❌ **Payment Claim Rejected**\n\nYour payment could not be verified at this time.\nPlease contact Mr White for assistance.\n\nCommand: /support")
         await event.edit(f"❌ Rejected User {uid}")
 
-# --- 9. RUNNER ---
+# --- 9. DATABASE REPAIR & RUNNER ---
 async def main():
     try:
-        await client.start(bot_token=config.BOT_TOKEN); database.init_db()
-        await client.send_message(config.ADMIN_ID, "🚀 **Bot Online! Alerts, Stats, and Last Seen tracking active.**")
+        # Step 1: Initialize DB
+        database.init_db()
+        # Step 2: Fix missing column error automatically
+        conn = database.get_connection(); cur = conn.cursor()
+        cur.execute("ALTER TABLE subscribers ADD COLUMN IF NOT EXISTS last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
+        conn.commit(); cur.close(); conn.close()
+        
+        await client.start(bot_token=config.BOT_TOKEN)
+        await client.send_message(config.ADMIN_ID, "🚀 **Bot Online! Database auto-repaired and stats active.**")
         await client.run_until_disconnected()
     except FloodWaitError as e: await asyncio.sleep(e.seconds); await main()
 
