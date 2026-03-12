@@ -2,30 +2,34 @@ import logging
 from telethon import TelegramClient, events, Button
 from telethon.errors import FloodWaitError
 import config, database, asyncio, time
+from datetime import datetime
 
 logging.basicConfig(level=logging.INFO)
-client = TelegramClient('mr_white_final_vision_v2', config.API_ID, config.API_HASH)
+client = TelegramClient('mr_white_final_v23', config.API_ID, config.API_HASH)
 
-# --- 1. THE ADVANCED BROADCAST COMMAND (TEXT + IMAGE) ---
-@client.on(events.NewMessage(pattern='/broadcast'))
+# --- 1. TYPO-PROOF BROADCAST ---
+@client.on(events.NewMessage(pattern=r'/(broadcast|boardcast)(.*)'))
 async def broadcast(event):
     if event.sender_id != config.ADMIN_ID:
         return
     
-    # Extract text after the command
-    msg_text = event.raw_text.replace('/broadcast', '').strip()
+    msg_text = event.pattern_match.group(2).strip()
     photo = event.photo if event.photo else None
     
+    if not msg_text and not photo:
+        await event.reply("❌ **Error:** Please type a message after the command.\nExample: `/broadcast Hello everyone!`")
+        return
+
     conn = database.get_connection(); cur = conn.cursor()
     cur.execute("SELECT user_id FROM subscribers")
     users = cur.fetchall()
     cur.close(); conn.close()
 
     if not users:
-        await event.reply("❌ No subscribers found.")
+        await event.reply("❌ No subscribers found in database.")
         return
 
-    await event.reply(f"📣 Starting broadcast to {len(users)} users...")
+    progress_msg = await event.reply(f"📣 **Sending to {len(users)} users...**")
     
     success_count = 0
     for user in users:
@@ -35,13 +39,13 @@ async def broadcast(event):
             else:
                 await client.send_message(user[0], msg_text)
             success_count += 1
-            await asyncio.sleep(0.3) # Flood prevention
+            await asyncio.sleep(0.3)
         except Exception:
             continue
 
-    await event.reply(f"✅ Broadcast complete! Sent to {success_count} users.")
+    await progress_msg.edit(f"✅ **Broadcast complete!**\nSuccessfully sent to **{success_count}** users.")
 
-# --- 2. START & NOTIFICATION ---
+# --- 2. START COMMAND ---
 @client.on(events.NewMessage(pattern='/start'))
 async def start(event):
     user = await event.get_sender()
@@ -73,11 +77,10 @@ async def start(event):
 
 To access today's confirmed selections, please check the price via the link below and click **'I Have Paid'**."""
 
-    # Bypass Telegram Cache to always show the newest ticket
-    timestamp_url = f"{config.COVERED_TICKET_URL}?v={int(time.time())}"
-    await client.send_file(event.chat_id, timestamp_url, caption=welcome_text, buttons=buttons)
+    ts_url = f"{config.COVERED_TICKET_URL}?v={int(time.time())}"
+    await client.send_file(event.chat_id, ts_url, caption=welcome_text, buttons=buttons)
 
-# --- 3. STATUS & SUPPORT ---
+# --- 3. STATUS & SUPPORT SYSTEM ---
 @client.on(events.NewMessage(pattern='/status'))
 async def status_cmd(event):
     if database.is_user_approved(event.sender_id):
@@ -87,27 +90,63 @@ async def status_cmd(event):
 
 @client.on(events.NewMessage(pattern='/support'))
 async def support_cmd(event):
-    await event.reply("👋 **Support:** Contact @Best_Admin24 for assistance with payments or tickets.")
+    # This is the exact message you requested!
+    await event.reply("💬 **You’re now connected to support.**\nKindly explain your issue clearly Mr. White is listening. 🎯")
 
-# --- 4. BUTTON CALLBACKS ---
+# --- 4. LIVE CHAT FORWARDING & AUTO-REPLY (12AM - 5AM) ---
+@client.on(events.NewMessage(incoming=True))
+async def forward_to_admin(event):
+    if event.is_private and not event.raw_text.startswith('/') and event.sender_id != config.ADMIN_ID:
+        user = await event.get_sender()
+        name = user.first_name if user.first_name else "Unknown"
+        
+        # Forward message to Admin
+        await client.send_message(
+            config.ADMIN_ID, 
+            f"📩 **NEW SUPPORT MESSAGE**\n👤 **From:** {name}\n🆔 **ID:** `{event.sender_id}`\n\n💬 **Message:**\n{event.raw_text}"
+        )
+        
+        # Check current hour in GMT (0 to 23)
+        current_hour = datetime.utcnow().hour
+        
+        # Offline window: 12 AM (0) to 5 AM (5)
+        if 0 <= current_hour < 5:
+            await event.reply("🌙 **Mr. White is currently offline.**\n\nI have received your message and will review it as soon as I am back online in the morning (after 5 AM). Thank you for your patience! 🎯")
+
+# --- 5. ADMIN REPLY COMMAND ---
+@client.on(events.NewMessage(pattern=r'/reply (\d+) (.+)'))
+async def admin_reply(event):
+    if event.sender_id != config.ADMIN_ID:
+        return
+    
+    user_id = int(event.pattern_match.group(1))
+    reply_msg = event.pattern_match.group(2)
+    
+    try:
+        await client.send_message(user_id, f"👨‍💼 **Mr. White Support:**\n\n{reply_msg}")
+        await event.reply(f"✅ Reply successfully sent to user `{user_id}`")
+    except Exception as e:
+        await event.reply(f"❌ Failed to send message: {e}")
+
+# --- 6. BUTTON CALLBACKS ---
 @client.on(events.CallbackQuery(data="win_guarantee"))
 async def wg(event):
     await event.answer()
-    await event.reply("🛡️ **Mr. White Win Guarantee**\n\nWe pride ourselves on delivering high-accuracy Correct Score selections. Our team performs deep analysis to ensure a **95%+ success rate**.")
+    await event.reply("🛡️ **95%+ Accuracy Guaranteed.**\nEvery ticket is analyzed and verified post-match.")
 
 @client.on(events.CallbackQuery(data="terms"))
 async def tr(event):
     await event.answer()
-    await event.reply("⚖️ **Terms of Service**\n\n1. **Final Sale:** All purchases are final.\n2. **Verification:** Claims are subject to manual admin verification.\n3. **Confidentiality:** Reselling tickets is strictly prohibited.")
+    await event.reply("⚖️ **Terms:** Sales are final. Manual verification is required for all claims.")
 
 @client.on(events.CallbackQuery(data="claim_pay"))
 async def claim(event):
-    await event.answer("✅ Request sent to Admin.", alert=True)
+    await event.answer("✅ Sent to Admin.", alert=True)
     user = await event.get_sender()
     btns = [[Button.inline("✅ Approve", data=f"app_{user.id}"), Button.inline("❌ Reject", data=f"rej_{user.id}")]]
     await client.send_message(config.ADMIN_ID, f"🚨 **New Claim!**\nUser: {user.first_name}\nID: `{user.id}`", buttons=btns)
 
-# --- 5. ADMIN APPROVE/REJECT ---
+# --- 7. ADMIN ACTIONS ---
 @client.on(events.CallbackQuery(pattern=r"(app|rej)_(\d+)"))
 async def admin_decision(event):
     if event.sender_id != config.ADMIN_ID: return
@@ -116,23 +155,22 @@ async def admin_decision(event):
     
     if act == "app":
         database.approve_user_24h(uid, "User")
-        success_msg = "✅ **Payment Verified**\n\nYour ticket has been successfully issued and is valid for 24 hours."
-        await client.send_file(uid, config.TICKET_URL, caption=success_msg)
+        success = "✅ **Payment Verified**\nYour ticket has been issued and is valid for 24 hours."
+        await client.send_file(uid, config.TICKET_URL, caption=success)
         await event.edit(f"✅ Approved User {uid}")
     else:
-        reject_msg = "❌ **Payment Claim Rejected**\n\nYour payment could not be verified. Please contact @Best_Admin24 for assistance."
-        await client.send_message(uid, reject_msg)
+        await client.send_message(uid, "❌ **Payment Claim Rejected**\nPlease ensure you have paid via Selar.")
         await event.edit(f"❌ Rejected User {uid}")
 
-# --- 6. STARTUP WITH FLOOD HANDLING ---
+# --- 8. MAIN RUNNER ---
 async def main():
     try:
         await client.start(bot_token=config.BOT_TOKEN)
         database.init_db()
-        await client.send_message(config.ADMIN_ID, "🚀 **Mr. White Bot: Final Vision Online!**\nBroadcast and Auto-Start active.")
+        await client.send_message(config.ADMIN_ID, "🚀 **Bot Online! Support offline from 12AM-5AM.**")
         await client.run_until_disconnected()
     except FloodWaitError as e:
-        logging.warning(f"FloodWait! Sleeping for {e.seconds} seconds.")
+        logging.warning(f"FloodWait! Waiting {e.seconds}s.")
         await asyncio.sleep(e.seconds)
         await main()
 
