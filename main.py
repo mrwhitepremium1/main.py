@@ -12,23 +12,23 @@ sleep_mode_active = False
 OFFLINE_MSG = "🌙 **Mr. White is currently offline.**\nYour message has been received and will be reviewed as soon as he is back online. Thank you for your patience! 🎯"
 
 logging.basicConfig(level=logging.INFO)
-client = TelegramClient('mr_white_final_v20', config.API_ID, config.API_HASH, connection_retries=None)
+client = TelegramClient('mr_white_final_v21', config.API_ID, config.API_HASH, connection_retries=None)
 
-# --- 1. ADMIN: BROADCAST (FIXED FOR GIF, PHOTO, VIDEO) ---
-@client.on(events.NewMessage(pattern=r'^/(broadcast|boardcast)(.*)'))
+# --- 1. ADMIN: BROADCAST (FIXED FOR MULTI-LINE & MEDIA) ---
+@client.on(events.NewMessage(pattern=r'^/(broadcast|boardcast)([\s\S]*)'))
 async def broadcast(event):
     if event.sender_id != config.ADMIN_ID: return
     
-    # Extract text from pattern or caption
+    # ([\s\S]*) captures ALL lines including breaks
     msg_text = event.pattern_match.group(2).strip()
     media = event.media if event.media else None
 
-    # If it's a media file with a caption, fix the text extraction
+    # Fallback for media captions if text wasn't in the pattern
     if not msg_text and event.message.message:
         msg_text = event.message.message.replace('/broadcast', '').replace('/boardcast', '').strip()
 
     if not msg_text and not media:
-        return await event.reply("❌ **Error:** Usage: `/broadcast Hello` or send a GIF/Photo with the command in caption.")
+        return await event.reply("❌ **Error:** Usage: `/broadcast [Message]` or send a GIF/Photo with command in caption.")
         
     conn = database.get_connection(); cur = conn.cursor()
     cur.execute("SELECT user_id FROM subscribers"); users = cur.fetchall()
@@ -44,7 +44,7 @@ async def broadcast(event):
             else: 
                 await client.send_message(user[0], msg_text)
             success += 1
-            await asyncio.sleep(0.15) # Delay to prevent Flood
+            await asyncio.sleep(0.15) 
         except (UserIsBlockedError, PeerIdInvalidError):
             blocked += 1
         except Exception: continue
@@ -67,7 +67,7 @@ async def list_users(event):
     cur.close(); conn.close()
     await event.reply(f"📊 **Total Subscribers:** `{total}`")
 
-# --- 3. START COMMAND (FIXED VISITOR ALERT & COUNT) ---
+# --- 3. START COMMAND (FIXED VISITOR ALERT & USER COUNT) ---
 @client.on(events.NewMessage(pattern='/start'))
 async def start(event):
     user = await event.get_sender()
@@ -75,7 +75,7 @@ async def start(event):
     uid = user.id
     username = user.username if user.username else "No Username"
 
-    # REGISTER USER IMMEDIATELY (Fixes the 36 users stuck issue)
+    # REGISTER USER IMMEDIATELY
     conn = database.get_connection(); cur = conn.cursor()
     cur.execute("""
         INSERT INTO subscribers (user_id, username, last_seen) 
