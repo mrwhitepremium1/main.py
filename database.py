@@ -7,37 +7,51 @@ def get_connection():
     db_url = os.environ.get("DATABASE_URL")
     if not db_url:
         raise Exception("❌ DATABASE_URL missing!")
-    
-    # Retry loop: Try 5 times before giving up
-    for attempt in range(5):
-        try:
-            # Increased timeout to 20 seconds for stability
-            return psycopg2.connect(db_url, connect_timeout=20)
-        except psycopg2.OperationalError as e:
-            print(f"⚠️ Connection attempt {attempt + 1} failed. Retrying in 3s...")
-            time.sleep(3)
-    
-    raise Exception("❌ Total Connection Timeout. Database is unresponsive.")
+    return psycopg2.connect(db_url, connect_timeout=10)
 
 def init_db():
+    conn = get_connection(); cur = conn.cursor()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS subscribers (
+            user_id BIGINT PRIMARY KEY,
+            username TEXT,
+            approved BOOLEAN DEFAULT FALSE,
+            expiry_time TIMESTAMP,
+            last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    cur.execute("ALTER TABLE subscribers ADD COLUMN IF NOT EXISTS approved BOOLEAN DEFAULT FALSE")
+    cur.execute("ALTER TABLE subscribers ADD COLUMN IF NOT EXISTS expiry_time TIMESTAMP")
+    cur.execute("ALTER TABLE subscribers ADD COLUMN IF NOT EXISTS last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
+    conn.commit(); cur.close(); conn.close()
+    print("✅ Database Verified & Active")
+
+def is_user_approved(user_id):
     try:
         conn = get_connection(); cur = conn.cursor()
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS subscribers (
-                user_id BIGINT PRIMARY KEY,
-                username TEXT,
-                approved BOOLEAN DEFAULT FALSE,
-                expiry_time TIMESTAMP,
-                last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        # Self-healing columns
-        cur.execute("ALTER TABLE subscribers ADD COLUMN IF NOT EXISTS approved BOOLEAN DEFAULT FALSE")
-        cur.execute("ALTER TABLE subscribers ADD COLUMN IF NOT EXISTS expiry_time TIMESTAMP")
-        cur.execute("ALTER TABLE subscribers ADD COLUMN IF NOT EXISTS last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
-        conn.commit(); cur.close(); conn.close()
-        print("✅ Database Verified & Active")
+        cur.execute("SELECT approved, expiry_time FROM subscribers WHERE user_id = %s", (user_id,))
+        res = cur.fetchone()
+        cur.close(); conn.close()
+        if res:
+            is_approved, expiry = res[0], res[1]
+            if is_approved and expiry and expiry > datetime.now():
+                return True
+        return False
     except Exception as e:
-        print(f"❌ DB Init Error: {e}")
+        print(f"Error checking approval: {e}")
+        return False
 
-# ... (Keep your is_user_approved and approve_user_24h functions the same)
+def approve_user_24h(user_id, username):
+    expiry = datetime.now() + timedelta(hours=24)
+    conn = get_connection(); cur = conn.cursor()
+    cur.execute("""
+        INSERT INTO subscribers (user_id, username, approved, expiry_time, last_seen)
+        VALUES (%s, %s, TRUE, %s, %s)
+        ON CONFLICT (user_id) DO UPDATE SET 
+            approved = TRUE, 
+            expiry_time = EXCLUDED.expiry_time,
+            username = EXCLUDED.username,
+            last_seen = EXCLUDED.last_seen
+    """, (user_id, username, expiry, datetime.now()))
+    conn.commit(); cur.close(); conn.close()
+    print(f"✅ User {user_id} approved for 24h")
