@@ -12,89 +12,46 @@ sleep_mode_active = False
 OFFLINE_MSG = "🌙 **Mr. White is currently offline.**\nYour message has been received and will be reviewed as soon as he is back online. Thank you for your patience! 🎯"
 
 logging.basicConfig(level=logging.INFO)
-client = TelegramClient('mr_white_final_v18', config.API_ID, config.API_HASH, connection_retries=None)
+client = TelegramClient('mr_white_final_v20', config.API_ID, config.API_HASH, connection_retries=None)
 
-# --- 1. FIXED BROADCAST (TEXT + IMAGE) ---
+# --- 1. ADMIN: BROADCAST (FIXED FOR GIF, PHOTO, VIDEO) ---
 @client.on(events.NewMessage(pattern=r'^/(broadcast|boardcast)(.*)'))
 async def broadcast(event):
     if event.sender_id != config.ADMIN_ID: return
     
-    # Logic to capture text even if it's a caption on an image
+    # Extract text from pattern or caption
     msg_text = event.pattern_match.group(2).strip()
-    photo = event.photo if event.photo else None
-    
-    # If it's a photo with a caption, the pattern might be in the caption
+    media = event.media if event.media else None
+
+    # If it's a media file with a caption, fix the text extraction
     if not msg_text and event.message.message:
         msg_text = event.message.message.replace('/broadcast', '').replace('/boardcast', '').strip()
 
-    if not msg_text and not photo:
-        return await event.reply("❌ **Error:** Please provide a message or photo.")
+    if not msg_text and not media:
+        return await event.reply("❌ **Error:** Usage: `/broadcast Hello` or send a GIF/Photo with the command in caption.")
         
     conn = database.get_connection(); cur = conn.cursor()
     cur.execute("SELECT user_id FROM subscribers"); users = cur.fetchall()
     cur.close(); conn.close()
     
-    status_msg = await event.reply(f"📣 **Sending to {len(users)} users...**")
+    status_msg = await event.reply(f"📣 **Broadcasting to {len(users)} users...**")
     success, blocked = 0, 0
     
     for user in users:
         try:
-            if photo: 
-                await client.send_file(user[0], photo, caption=msg_text)
+            if media: 
+                await client.send_file(user[0], media, caption=msg_text)
             else: 
                 await client.send_message(user[0], msg_text)
             success += 1
-            await asyncio.sleep(0.1) 
+            await asyncio.sleep(0.15) # Delay to prevent Flood
         except (UserIsBlockedError, PeerIdInvalidError):
             blocked += 1
         except Exception: continue
         
     await status_msg.edit(f"✅ **Broadcast Done**\nSent: `{success}`\nBlocked: `{blocked}`")
 
-# --- 2. START COMMAND (FIXED VISITOR ALERT & USER COUNT) ---
-@client.on(events.NewMessage(pattern='/start'))
-async def start(event):
-    user = await event.get_sender()
-    first_name = user.first_name if user.first_name else "Winner"
-    uid = user.id
-    username = user.username if user.username else "No Username"
-
-    # 1. FIXED: Ensure user is added to DB immediately to increase count
-    conn = database.get_connection(); cur = conn.cursor()
-    cur.execute("""
-        INSERT INTO subscribers (user_id, username, last_seen) 
-        VALUES (%s, %s, %s) 
-        ON CONFLICT (user_id) DO UPDATE SET last_seen = %s, username = %s
-    """, (uid, username, datetime.now(), datetime.now(), username))
-    conn.commit(); cur.close(); conn.close()
-
-    # 2. FIXED: Visitor Alert to Admin
-    alert = f"👤 **New Visitor Alert!**\nName: {first_name}\nID: `{uid}`\nUser: @{username}"
-    await client.send_message(config.ADMIN_ID, alert)
-
-    buttons = [[Button.url("💳 Check Price & Buy Ticket", config.SELAR_PAYMENT_LINK)],
-               [Button.inline("✅ I Have Paid", data="claim_pay")]]
-    
-    welcome_text = (f"Hello 👋 {first_name}!\n\n**Welcome to Mr. White | Official Bot**\n━━━━━━━━━━━━━━━━━━━━\n"
-                    f"💎 **PREMIUM INFO ARRIVED**\n⭐ **CONFIRMED TICKET** 🎫\n\n☑ **Fixed Tips:** Correct Score\n"
-                    f"✔ **Verification:** 100% Guaranteed\n\nTo access today's confirmed selections, please check "
-                    f"the price via the link below and click **'I Have Paid'**.")
-    
-    ts_url = f"{config.COVERED_TICKET_URL}?v={int(time.time())}"
-    await client.send_file(event.chat_id, ts_url, caption=welcome_text, buttons=buttons)
-
-# --- 3. STATUS, SUPPORT & ADMIN TOOLS (MAINTAINED) ---
-@client.on(events.NewMessage(pattern='/status'))
-async def status_cmd(event):
-    if database.is_user_approved(event.sender_id):
-        await event.reply("📊 Status: Active 🤝\n\nYour subscription is currently active.")
-    else:
-        await event.reply("📊 Status: Inactive ❌\n\nYour subscription is currently inactive.\nPlease purchase a ticket to activate your access.")
-
-@client.on(events.NewMessage(pattern='/support'))
-async def support_cmd(event):
-    await event.reply("💬 **Connected to support.**\nExplain your issue clearly, Mr. White is listening. 🎯")
-
+# --- 2. ADMIN: MANAGEMENT ---
 @client.on(events.NewMessage(pattern=r'/sleep (on|off)'))
 async def toggle_sleep(event):
     global sleep_mode_active
@@ -110,6 +67,58 @@ async def list_users(event):
     cur.close(); conn.close()
     await event.reply(f"📊 **Total Subscribers:** `{total}`")
 
+# --- 3. START COMMAND (FIXED VISITOR ALERT & COUNT) ---
+@client.on(events.NewMessage(pattern='/start'))
+async def start(event):
+    user = await event.get_sender()
+    first_name = user.first_name if user.first_name else "Winner"
+    uid = user.id
+    username = user.username if user.username else "No Username"
+
+    # REGISTER USER IMMEDIATELY (Fixes the 36 users stuck issue)
+    conn = database.get_connection(); cur = conn.cursor()
+    cur.execute("""
+        INSERT INTO subscribers (user_id, username, last_seen) 
+        VALUES (%s, %s, %s) 
+        ON CONFLICT (user_id) DO UPDATE SET last_seen = %s, username = %s
+    """, (uid, username, datetime.now(), datetime.now(), username))
+    conn.commit(); cur.close(); conn.close()
+
+    # VISITOR ALERT TO ADMIN
+    await client.send_message(config.ADMIN_ID, f"👤 **New Visitor Alert!**\nName: {first_name}\nID: `{uid}`\nUser: @{username}")
+
+    buttons = [[Button.url("💳 Check Price & Buy Ticket", config.SELAR_PAYMENT_LINK)],
+               [Button.inline("✅ I Have Paid", data="claim_pay")]]
+    
+    welcome_text = (f"Hello 👋 {first_name}!\n\n**Welcome to Mr. White | Official Bot**\n━━━━━━━━━━━━━━━━━━━━\n"
+                    f"💎 **PREMIUM INFO ARRIVED**\n⭐ **CONFIRMED TICKET** 🎫\n\n☑ **Fixed Tips:** Correct Score\n"
+                    f"✔ **Verification:** 100% Guaranteed\n\nTo access today's confirmed selections, please check "
+                    f"the price via the link below and click **'I Have Paid'**.")
+    
+    ts_url = f"{config.COVERED_TICKET_URL}?v={int(time.time())}"
+    await client.send_file(event.chat_id, ts_url, caption=welcome_text, buttons=buttons)
+
+# --- 4. STATUS & SUPPORT ---
+@client.on(events.NewMessage(pattern='/status'))
+async def status_cmd(event):
+    if database.is_user_approved(event.sender_id):
+        await event.reply("📊 Status: Active 🤝\n\nYour subscription is currently active.")
+    else:
+        await event.reply("📊 Status: Inactive ❌\n\nYour subscription is currently inactive.\nPlease purchase a ticket to activate your access.")
+
+@client.on(events.NewMessage(pattern='/support'))
+async def support_cmd(event):
+    await event.reply("💬 **Connected to support.**\nExplain your issue clearly, Mr. White is listening. 🎯")
+
+# --- 5. FORWARDING & CALLBACKS ---
+@client.on(events.NewMessage())
+async def forward_to_admin(event):
+    if event.is_private and not event.raw_text.startswith('/') and event.sender_id != config.ADMIN_ID:
+        if sleep_mode_active: await event.reply(OFFLINE_MSG)
+        user = await event.get_sender()
+        await client.send_message(config.ADMIN_ID, f"📩 **SUPPORT MESSAGE**\n👤: {user.first_name}\n🆔: `{user.id}`")
+        await client.forward_messages(config.ADMIN_ID, event.message)
+
 @client.on(events.CallbackQuery())
 async def callback_handler(event):
     data = event.data.decode()
@@ -117,7 +126,7 @@ async def callback_handler(event):
         user = await event.get_sender()
         await event.answer("✅ Sent to Admin.", alert=True)
         btns = [[Button.inline("✅ Approve", data=f"app_{user.id}"), Button.inline("❌ Reject", data=f"rej_{user.id}")]]
-        await client.send_message(config.ADMIN_ID, f"🚨 **New Claim!**\nUser: {user.first_name}\nID: `{user.id}`", buttons=btns)
+        await client.send_message(config.ADMIN_ID, f"🚨 **New Claim!**\nID: `{user.id}`", buttons=btns)
     elif data.startswith('app_'):
         uid = int(data.split('_')[1])
         database.approve_user_24h(uid, "User")
@@ -128,7 +137,7 @@ async def callback_handler(event):
         await event.edit(f"❌ Rejected {uid}")
         await client.send_message(uid, "❌ **Payment Claim Rejected**\n\nYour payment could not be verified.\nContact support for help.\n\nCommand: /support")
 
-# --- 4. RUNNER ---
+# --- 6. RUNNER ---
 async def main():
     database.init_db()
     await client.start(bot_token=config.BOT_TOKEN)
