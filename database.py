@@ -1,14 +1,48 @@
-# A simple set to keep track of approved IDs while the bot is running
-approved_users = set()
+import psycopg2
+import os
+from datetime import datetime, timedelta
+
+def get_connection():
+    return psycopg2.connect(os.environ.get("DATABASE_URL"))
 
 def init_db():
-    print("✅ Memory Mode: Database bypassed. Bot is stable.")
+    conn = get_connection(); cur = conn.cursor()
+    # Subscribers table for total user count and broadcasting
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS subscribers (
+            user_id BIGINT PRIMARY KEY,
+            username TEXT,
+            joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    # Approved table for PAID users only - this is what /status checks
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS approved_users (
+            user_id BIGINT PRIMARY KEY,
+            name TEXT,
+            expiry_time TIMESTAMP
+        )
+    """)
+    conn.commit(); cur.close(); conn.close()
+
+def approve_user_24h(user_id, name):
+    conn = get_connection(); cur = conn.cursor()
+    expiry = datetime.now() + timedelta(hours=24)
+    cur.execute("""
+        INSERT INTO approved_users (user_id, name, expiry_time)
+        VALUES (%s, %s, %s)
+        ON CONFLICT (user_id) DO UPDATE SET expiry_time = EXCLUDED.expiry_time
+    """, (user_id, name, expiry))
+    conn.commit(); cur.close(); conn.close()
 
 def is_user_approved(user_id):
-    # Returns True if the user is in our memory list
-    return user_id in approved_users
-
-def approve_user_24h(user_id, username=None):
-    # Adds the user to the list
-    approved_users.add(user_id)
-    print(f"✅ User {user_id} added to active session.")
+    conn = get_connection(); cur = conn.cursor()
+    # STRICT CHECK: Only looks at the approval list
+    cur.execute("SELECT expiry_time FROM approved_users WHERE user_id = %s", (user_id,))
+    result = cur.fetchone()
+    cur.close(); conn.close()
+    
+    if result is None:
+        return False
+    # Verifies the 24-hour window hasn't closed
+    return datetime.now() < result[0]
