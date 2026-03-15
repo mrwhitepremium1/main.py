@@ -7,20 +7,24 @@ from datetime import datetime, timedelta
 logging.basicConfig(level=logging.INFO)
 client = TelegramClient('mr_white_v29_fixed', config.API_ID, config.API_HASH)
 
-# --- 1. MULTI-LINE BROADCAST & AUTO-CLEAN ---
+# --- 1. BROADCAST SYSTEM ---
 @client.on(events.NewMessage(pattern=r'/(broadcast|boardcast)([\s\S]*)'))
 async def broadcast(event):
     if event.sender_id != config.ADMIN_ID: return
     msg_text = event.pattern_match.group(2).strip()
     photo = event.photo if event.photo else None
+    
     if not msg_text and not photo:
         await event.reply("❌ **Error:** Please type a message after the command.")
         return
+        
     conn = database.get_connection(); cur = conn.cursor()
     cur.execute("SELECT user_id FROM subscribers"); users = cur.fetchall()
     cur.close(); conn.close()
+    
     progress_msg = await event.reply(f"📣 **Broadcasting...**")
     success_count = 0; blocked_count = 0
+    
     for user in users:
         uid = user[0]
         try:
@@ -34,9 +38,10 @@ async def broadcast(event):
             conn.commit(); cur.close(); conn.close()
             blocked_count += 1
         except Exception: continue
+        
     await progress_msg.edit(f"✅ **Broadcast complete!**\nSent: **{success_count}**\nRemoved: **{blocked_count}**")
 
-# --- 2. START COMMAND (Buttons Updated) ---
+# --- 2. UPDATED START COMMAND ---
 @client.on(events.NewMessage(pattern='/start'))
 async def start(event):
     user = await event.get_sender()
@@ -53,11 +58,12 @@ async def start(event):
     cur.execute("SELECT COUNT(*) FROM subscribers"); total = cur.fetchone()[0]
     cur.close(); conn.close()
 
+    # Visitor notification to you
     alert = (f"👤 **Visitor Alert!**\nName: {first_name}\nUsername: @{user.username if user.username else 'N/A'}\n"
              f"ID: `{user.id}`\nTotal Users: {total}")
     await client.send_message(config.ADMIN_ID, alert)
 
-    # Removed Win Guarantee and Terms buttons
+    # Clean menu: Removed Guarantee & Terms buttons
     buttons = [[Button.url("💳 Check Price & Buy Ticket", config.SELAR_PAYMENT_LINK)],
                [Button.inline("✅ I Have Paid", data="claim_pay")]]
     
@@ -65,10 +71,11 @@ async def start(event):
                     f"💎 **PREMIUM INFO ARRIVED**\n⭐ **CONFIRMED TICKET** 🎫\n\n☑ **Fixed Tips:** Correct Score\n"
                     f"✔ **Verification:** 100% Guaranteed\n\nTo access today's confirmed selections, please check "
                     f"the price via the link below and click **'I Have Paid'**.")
+    
     ts_url = f"{config.COVERED_TICKET_URL}?v={int(time.time())}"
     await client.send_file(event.chat_id, ts_url, caption=welcome_text, buttons=buttons)
 
-# --- 3. STATUS & SUPPORT (Bold Text Applied) ---
+# --- 3. STATUS & BOLD SUPPORT ---
 @client.on(events.NewMessage(pattern='/status'))
 async def status_cmd(event):
     if database.is_user_approved(event.sender_id):
@@ -78,10 +85,10 @@ async def status_cmd(event):
 
 @client.on(events.NewMessage(pattern='/support'))
 async def support_cmd(event):
-    # Added bold formatting as requested
+    # Text is now bold as requested
     await event.reply("💬 **Connected to support.**\nExplain your issue clearly, Mr. White is listening. 🎯")
 
-# --- 4. ADMIN ACTIONS & CALLBACKS ---
+# --- 4. CALLBACKS & APPROVAL ---
 @client.on(events.CallbackQuery(data="claim_pay"))
 async def claim(event):
     await event.answer("✅ Sent to Admin.", alert=True)
@@ -93,9 +100,10 @@ async def claim(event):
 async def admin_decision(event):
     if event.sender_id != config.ADMIN_ID: return
     await event.answer(); act, uid = event.data.decode().split('_')[0], int(event.data.decode().split('_')[1])
+    
     if act == "app":
         database.approve_user_24h(uid, "User")
-        await client.send_file(uid, config.TICKET_URL, caption="✅ **Payment Verified**\n\nYour ticket has been issued for 24 hours.")
+        await client.send_file(uid, config.TICKET_URL, caption="✅ **Payment Verified**\n\nYour ticket has been issued and will remain valid for 24 hours.")
         await event.edit(f"✅ Approved User {uid}")
     else:
         await client.send_message(uid, "❌ **Payment Claim Rejected**\nPlease contact Mr White for assistance.")
@@ -105,13 +113,13 @@ async def admin_decision(event):
 async def main():
     try:
         database.init_db()
-        # Repair column
+        # Auto-maintenance for the database table
         conn = database.get_connection(); cur = conn.cursor()
         cur.execute("ALTER TABLE subscribers ADD COLUMN IF NOT EXISTS last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
         conn.commit(); cur.close(); conn.close()
         
         await client.start(bot_token=config.BOT_TOKEN)
-        await client.send_message(config.ADMIN_ID, "🚀 **Bot Online! Fully Repaired.**")
+        print("🚀 Bot is live with updated menus and bold support text!")
         await client.run_until_disconnected()
     except FloodWaitError as e: await asyncio.sleep(e.seconds); await main()
 
