@@ -1,11 +1,17 @@
 import logging
+import os
+import asyncio
+import time
+from datetime import datetime, timedelta
 from telethon import TelegramClient, events, Button
 from telethon.errors import FloodWaitError, UserIsBlockedError, PeerIdInvalidError
-import config, database, asyncio, time
-from datetime import datetime, timedelta
+import config
+import database
 
+# --- SETUP ---
 logging.basicConfig(level=logging.INFO)
-client = TelegramClient('mr_white_v29_fixed', config.API_ID, config.API_HASH)
+# Use connection_retries=None for better stability on Railway
+client = TelegramClient('mr_white_production', config.API_ID, config.API_HASH, connection_retries=None)
 
 # --- 1. BROADCAST SYSTEM ---
 @client.on(events.NewMessage(pattern=r'/(broadcast|boardcast)([\s\S]*)'))
@@ -31,7 +37,7 @@ async def broadcast(event):
             if photo: await client.send_file(uid, photo, caption=msg_text)
             else: await client.send_message(uid, msg_text)
             success_count += 1
-            await asyncio.sleep(0.3)
+            await asyncio.sleep(0.3) # Avoid flood
         except (UserIsBlockedError, PeerIdInvalidError):
             conn = database.get_connection(); cur = conn.cursor()
             cur.execute("DELETE FROM subscribers WHERE user_id = %s", (uid,))
@@ -41,13 +47,14 @@ async def broadcast(event):
         
     await progress_msg.edit(f"✅ **Broadcast complete!**\nSent: **{success_count}**\nRemoved: **{blocked_count}**")
 
-# --- 2. UPDATED START COMMAND ---
+# --- 2. START COMMAND (Clean Menu) ---
 @client.on(events.NewMessage(pattern='/start'))
 async def start(event):
     user = await event.get_sender()
     first_name = user.first_name if user.first_name else "Winner"
     now = datetime.now()
     
+    # Track User
     conn = database.get_connection(); cur = conn.cursor()
     cur.execute("""
         INSERT INTO subscribers (user_id, username, last_seen) 
@@ -58,12 +65,12 @@ async def start(event):
     cur.execute("SELECT COUNT(*) FROM subscribers"); total = cur.fetchone()[0]
     cur.close(); conn.close()
 
-    # Visitor notification to you
+    # Admin Alert
     alert = (f"👤 **Visitor Alert!**\nName: {first_name}\nUsername: @{user.username if user.username else 'N/A'}\n"
              f"ID: `{user.id}`\nTotal Users: {total}")
     await client.send_message(config.ADMIN_ID, alert)
 
-    # Clean menu: Removed Guarantee & Terms buttons
+    # Clean Menu: Guarantee & Terms buttons removed
     buttons = [[Button.url("💳 Check Price & Buy Ticket", config.SELAR_PAYMENT_LINK)],
                [Button.inline("✅ I Have Paid", data="claim_pay")]]
     
@@ -78,6 +85,7 @@ async def start(event):
 # --- 3. STATUS & BOLD SUPPORT ---
 @client.on(events.NewMessage(pattern='/status'))
 async def status_cmd(event):
+    # Fixed to use exact wording from your request
     if database.is_user_approved(event.sender_id):
         await event.reply("📊 Status: Active 🤝\n\nYour subscription is currently active.")
     else:
@@ -85,10 +93,10 @@ async def status_cmd(event):
 
 @client.on(events.NewMessage(pattern='/support'))
 async def support_cmd(event):
-    # Text is now bold as requested
+    # Exact wording with bold as requested
     await event.reply("💬 **Connected to support.**\nExplain your issue clearly, Mr. White is listening. 🎯")
 
-# --- 4. CALLBACKS & APPROVAL ---
+# --- 4. CALLBACKS & ADMIN APPROVAL ---
 @client.on(events.CallbackQuery(data="claim_pay"))
 async def claim(event):
     await event.answer("✅ Sent to Admin.", alert=True)
@@ -113,14 +121,18 @@ async def admin_decision(event):
 async def main():
     try:
         database.init_db()
-        # Auto-maintenance for the database table
+        # Database Maintenance
         conn = database.get_connection(); cur = conn.cursor()
         cur.execute("ALTER TABLE subscribers ADD COLUMN IF NOT EXISTS last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
         conn.commit(); cur.close(); conn.close()
         
         await client.start(bot_token=config.BOT_TOKEN)
-        print("🚀 Bot is live with updated menus and bold support text!")
+        print("✅ DATABASE CONNECTION SUCCESSFUL!")
+        print("🚀 BOT IS FULLY REPAIRED!")
         await client.run_until_disconnected()
-    except FloodWaitError as e: await asyncio.sleep(e.seconds); await main()
+    except FloodWaitError as e: 
+        await asyncio.sleep(e.seconds)
+        await main()
 
-if __name__ == '__main__': asyncio.run(main())
+if __name__ == '__main__':
+    asyncio.run(main())
