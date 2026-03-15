@@ -36,7 +36,7 @@ async def broadcast(event):
         except Exception: continue
     await progress_msg.edit(f"✅ **Broadcast complete!**\nSent: **{success_count}**\nRemoved: **{blocked_count}**")
 
-# --- 2. START COMMAND (Alert & Tracking) ---
+# --- 2. START COMMAND (Buttons Updated) ---
 @client.on(events.NewMessage(pattern='/start'))
 async def start(event):
     user = await event.get_sender()
@@ -57,8 +57,8 @@ async def start(event):
              f"ID: `{user.id}`\nTotal Users: {total}")
     await client.send_message(config.ADMIN_ID, alert)
 
+    # Removed Win Guarantee and Terms buttons
     buttons = [[Button.url("💳 Check Price & Buy Ticket", config.SELAR_PAYMENT_LINK)],
-               [Button.inline("🛡️ Win Guarantee", data="win_guarantee"), Button.inline("⚖️ Terms", data="terms")],
                [Button.inline("✅ I Have Paid", data="claim_pay")]]
     
     welcome_text = (f"Hello 👋 {first_name}!\n\n**Welcome to Mr. White | Official Bot**\n━━━━━━━━━━━━━━━━━━━━\n"
@@ -68,20 +68,7 @@ async def start(event):
     ts_url = f"{config.COVERED_TICKET_URL}?v={int(time.time())}"
     await client.send_file(event.chat_id, ts_url, caption=welcome_text, buttons=buttons)
 
-# --- 3. STATS COMMAND ---
-@client.on(events.NewMessage(pattern='/stats'))
-async def stats_cmd(event):
-    if event.sender_id != config.ADMIN_ID: return
-    conn = database.get_connection(); cur = conn.cursor()
-    cur.execute("SELECT COUNT(*) FROM subscribers")
-    total = cur.fetchone()[0]
-    yesterday = datetime.now() - timedelta(days=1)
-    cur.execute("SELECT COUNT(*) FROM subscribers WHERE last_seen > %s", (yesterday,))
-    active_24h = cur.fetchone()[0]
-    cur.close(); conn.close()
-    await event.reply(f"📊 **Bot Statistics**\n\n👥 Total Subscribers: **{total}**\n🔥 Active (Last 24h): **{active_24h}**")
-
-# --- 4. STATUS & SUPPORT (EXACT TEXT) ---
+# --- 3. STATUS & SUPPORT (Bold Text Applied) ---
 @client.on(events.NewMessage(pattern='/status'))
 async def status_cmd(event):
     if database.is_user_approved(event.sender_id):
@@ -91,21 +78,10 @@ async def status_cmd(event):
 
 @client.on(events.NewMessage(pattern='/support'))
 async def support_cmd(event):
-    await event.reply("💬 Connected to support.\nExplain your issue clearly, Mr. White is listening. 🎯")
+    # Added bold formatting as requested
+    await event.reply("💬 **Connected to support.**\nExplain your issue clearly, Mr. White is listening. 🎯")
 
-# --- 5. LIVE CHAT & OFFLINE MODE ---
-@client.on(events.NewMessage(incoming=True))
-async def forward_to_admin(event):
-    if event.is_private and not event.raw_text.startswith('/') and event.sender_id != config.ADMIN_ID:
-        user = await event.get_sender()
-        await client.send_message(config.ADMIN_ID, f"📩 **SUPPORT MESSAGE**\n👤 **From:** {user.first_name}\n🆔 **ID:** `{event.sender_id}`\n💬 **Msg:** {event.raw_text}")
-        if 0 <= datetime.utcnow().hour < 5:
-            await event.reply("🌙 **Mr. White is currently offline.**\n\nI have received your message and will review it as soon as I am back online. 🎯")
-
-# --- 6. CALLBACKS & ADMIN ACTIONS ---
-@client.on(events.CallbackQuery(data="win_guarantee"))
-async def wg(event): await event.answer(); await event.reply("🛡️ **Mr. White Win Guarantee**\n95%+ accuracy Correct Score tips.")
-
+# --- 4. ADMIN ACTIONS & CALLBACKS ---
 @client.on(events.CallbackQuery(data="claim_pay"))
 async def claim(event):
     await event.answer("✅ Sent to Admin.", alert=True)
@@ -125,7 +101,7 @@ async def admin_decision(event):
         await client.send_message(uid, "❌ **Payment Claim Rejected**\nPlease contact Mr White for assistance.")
         await event.edit(f"❌ Rejected User {uid}")
 
-# --- 7. RUNNER ---
+# --- 5. RUNNER ---
 async def main():
     try:
         database.init_db()
