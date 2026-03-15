@@ -10,7 +10,8 @@ import database
 
 # --- SETUP ---
 logging.basicConfig(level=logging.INFO)
-client = TelegramClient('mr_white_prod_v4', config.API_ID, config.API_HASH, connection_retries=None)
+# Session name changed to ensure a fresh start
+client = TelegramClient('mr_white_final_v5', config.API_ID, config.API_HASH, connection_retries=None)
 
 # --- 1. BROADCAST SYSTEM ---
 @client.on(events.NewMessage(pattern=r'/(broadcast|boardcast)([\s\S]*)'))
@@ -51,12 +52,14 @@ async def broadcast(event):
 async def start(event):
     user = await event.get_sender()
     first_name = user.first_name if user.first_name else "Winner"
-    now = datetime.now()
     
-    # Save/Update User
-    database.approve_user(user.id, user.username)
-    
-    # Clean menu: ONLY Payment and verification buttons
+    # FIXED: Using the correct function name from your database module
+    try:
+        database.approve_user_24h(user.id, user.username)
+    except Exception as e:
+        logging.error(f"Database error on start: {e}")
+
+    # Menu with ONLY Payment and "I Have Paid"
     buttons = [[Button.url("💳 Check Price & Buy Ticket", config.SELAR_PAYMENT_LINK)],
                [Button.inline("✅ I Have Paid", data="claim_pay")]]
     
@@ -103,7 +106,6 @@ async def callback_handler(event):
     elif data.startswith('rej_'):
         uid = int(data.split('_')[1])
         await event.edit(f"❌ Rejected User {uid}")
-        # Your exact requested rejection message
         reject_msg = (
             "❌ **Payment Claim Rejected**\n\n"
             "Your payment could not be verified at this time.\n"
@@ -114,12 +116,12 @@ async def callback_handler(event):
             await client.send_message(uid, reject_msg)
         except: pass
 
-# --- 5. RUNNER (With Flood Handling) ---
+# --- 5. RUNNER (With Flood Protection) ---
 async def main():
     try:
         database.init_db()
         await client.start(bot_token=config.BOT_TOKEN)
-        print("🚀 BOT IS LIVE & REPAIRED!")
+        print("🚀 BOT IS LIVE, REPAIRED, & SYNCHRONIZED!")
         await client.run_until_disconnected()
     except FloodWaitError as e:
         print(f"⚠️ FloodWait: Waiting {e.seconds} seconds...")
