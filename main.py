@@ -10,8 +10,7 @@ import database
 
 # --- SETUP ---
 logging.basicConfig(level=logging.INFO)
-# Session name is specific to avoid conflicts
-client = TelegramClient('mr_white_v3_session', config.API_ID, config.API_HASH, connection_retries=None)
+client = TelegramClient('mr_white_prod_v4', config.API_ID, config.API_HASH, connection_retries=None)
 
 # --- 1. BROADCAST SYSTEM ---
 @client.on(events.NewMessage(pattern=r'/(broadcast|boardcast)([\s\S]*)'))
@@ -47,30 +46,17 @@ async def broadcast(event):
         
     await progress_msg.edit(f"✅ **Broadcast complete!**\nSent: **{success_count}**\nRemoved: **{blocked_count}**")
 
-# --- 2. START COMMAND (Clean Menu) ---
+# --- 2. START COMMAND (No Guarantee/Terms Buttons) ---
 @client.on(events.NewMessage(pattern='/start'))
 async def start(event):
     user = await event.get_sender()
     first_name = user.first_name if user.first_name else "Winner"
     now = datetime.now()
     
-    # Track User in DB
-    conn = database.get_connection(); cur = conn.cursor()
-    cur.execute("""
-        INSERT INTO subscribers (user_id, username, last_seen) 
-        VALUES (%s, %s, %s) 
-        ON CONFLICT (user_id) DO UPDATE SET last_seen = EXCLUDED.last_seen, username = EXCLUDED.username
-    """, (user.id, user.username, now))
-    conn.commit()
-    cur.execute("SELECT COUNT(*) FROM subscribers"); total = cur.fetchone()[0]
-    cur.close(); conn.close()
-
-    # Visitor notification to Admin
-    alert = (f"👤 **Visitor Alert!**\nName: {first_name}\nUsername: @{user.username if user.username else 'N/A'}\n"
-             f"ID: `{user.id}`\nTotal Users: {total}")
-    await client.send_message(config.ADMIN_ID, alert)
-
-    # Clean menu: Removed Guarantee & Terms buttons
+    # Save/Update User
+    database.approve_user(user.id, user.username)
+    
+    # Clean menu: ONLY Payment and verification buttons
     buttons = [[Button.url("💳 Check Price & Buy Ticket", config.SELAR_PAYMENT_LINK)],
                [Button.inline("✅ I Have Paid", data="claim_pay")]]
     
@@ -92,42 +78,53 @@ async def status_cmd(event):
 
 @client.on(events.NewMessage(pattern='/support'))
 async def support_cmd(event):
-    # Connected to support in BOLD
+    # Bold text as requested
     await event.reply("💬 **Connected to support.**\nExplain your issue clearly, Mr. White is listening. 🎯")
 
-# --- 4. CALLBACKS & APPROVAL ---
-@client.on(events.CallbackQuery(data="claim_pay"))
-async def claim(event):
-    await event.answer("✅ Sent to Admin.", alert=True)
-    user = await event.get_sender()
-    btns = [[Button.inline("✅ Approve", data=f"app_{user.id}"), Button.inline("❌ Reject", data=f"rej_{user.id}")]]
-    await client.send_message(config.ADMIN_ID, f"🚨 **New Claim!**\nUser: {user.first_name}\nID: `{user.id}`", buttons=btns)
-
-@client.on(events.CallbackQuery(pattern=r"(app|rej)_(\d+)"))
-async def admin_decision(event):
-    if event.sender_id != config.ADMIN_ID: return
-    await event.answer(); act, uid = event.data.decode().split('_')[0], int(event.data.decode().split('_')[1])
+# --- 4. CALLBACKS & ADMIN ACTIONS ---
+@client.on(events.CallbackQuery())
+async def callback_handler(event):
+    data = event.data.decode()
     
-    if act == "app":
-        database.approve_user_24h(uid, "User")
-        await client.send_file(uid, config.TICKET_URL, caption="✅ **Payment Verified**\n\nYour ticket has been issued for 24 hours.")
-        await event.edit(f"✅ Approved User {uid}")
-    else:
-        await client.send_message(uid, "❌ **Payment Claim Rejected**\nPlease contact Mr White for assistance.")
-        await event.edit(f"❌ Rejected User {uid}")
+    if data == "claim_pay":
+        await event.answer("✅ Sent to Admin.", alert=True)
+        user = await event.get_sender()
+        btns = [[Button.inline("✅ Approve", data=f"app_{user.id}"), Button.inline("❌ Reject", data=f"rej_{user.id}")]]
+        await client.send_message(config.ADMIN_ID, f"🚨 **New Claim!**\nUser: {user.first_name}\nID: `{user.id}`", buttons=btns)
 
-# --- 5. RUNNER (WITH FLOOD PROTECTION) ---
+    elif data.startswith('app_'):
+        uid = int(data.split('_')[1])
+        database.approve_user_24h(uid, "User")
+        await event.edit(f"✅ Approved User {uid}")
+        try:
+            await client.send_file(uid, config.TICKET_URL, caption="✅ **Payment Verified**\n\nYour ticket has been issued for 24 hours.")
+        except: pass
+
+    elif data.startswith('rej_'):
+        uid = int(data.split('_')[1])
+        await event.edit(f"❌ Rejected User {uid}")
+        # Your exact requested rejection message
+        reject_msg = (
+            "❌ **Payment Claim Rejected**\n\n"
+            "Your payment could not be verified at this time.\n"
+            "Please contact Mr White for assistance.\n\n"
+            "Command: /support"
+        )
+        try:
+            await client.send_message(uid, reject_msg)
+        except: pass
+
+# --- 5. RUNNER (With Flood Handling) ---
 async def main():
     try:
         database.init_db()
         await client.start(bot_token=config.BOT_TOKEN)
-        print("✅ DATABASE CONNECTION SUCCESSFUL!")
-        print("🚀 BOT IS FULLY REPAIRED!")
+        print("🚀 BOT IS LIVE & REPAIRED!")
         await client.run_until_disconnected()
     except FloodWaitError as e:
-        print(f"⚠️ Telegram FloodWait: Sleeping for {e.seconds} seconds...")
+        print(f"⚠️ FloodWait: Waiting {e.seconds} seconds...")
         await asyncio.sleep(e.seconds)
-        await main() # Restart after sleeping
+        await main()
 
 if __name__ == '__main__':
     asyncio.run(main())
