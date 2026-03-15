@@ -7,7 +7,7 @@ import database
 API_ID = int(os.environ.get("API_ID", 0))
 API_HASH = os.environ.get("API_HASH", "")
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
-ADMIN_ID = 7461971701 
+ADMIN_ID = 7461971701  # Your Numeric Telegram ID
 
 client = TelegramClient('bot_session', API_ID, API_HASH, connection_retries=None)
 
@@ -15,7 +15,9 @@ client = TelegramClient('bot_session', API_ID, API_HASH, connection_retries=None
 
 @client.on(events.NewMessage(pattern='/start'))
 async def start(event):
+    # Automatically track new users in the database
     database.approve_user(event.sender_id, event.sender.username)
+    
     msg = (
         "👋 **Welcome to Mr. White Signals!**\n\n"
         "🔗 **New Ticket Link:** https://selar.co/mrwhite?v=2\n"
@@ -27,23 +29,24 @@ async def start(event):
 @client.on(events.NewMessage(pattern='/status'))
 async def status_cmd(event):
     if database.is_user_approved(event.sender_id):
-        await event.respond("📊 Status: Active 🤝\n\nYour subscription is currently active.")
+        await event.respond("📊 **Status: Active** 🤝\n\nYour subscription is currently active.")
     else:
         await event.respond("❌ **Status: Inactive**\nPlease purchase a ticket or contact @best_admin24.")
 
 @client.on(events.NewMessage(pattern='/support'))
 async def support_cmd(event):
-    await event.respond("💬 Connected to support.\nExplain your issue clearly, Mr. White is listening. 🎯")
+    await event.respond("💬 **You're now connected to support.**\nKindly explain your issue clearly. Mr. White is listening. 🎯")
 
-# --- 3. BUTTON LOGIC ---
+# --- 3. BUTTON LOGIC (THE FIX) ---
 
 @client.on(events.CallbackQuery())
 async def callback(event):
     data = event.data.decode()
     
+    # Handle Approve Click
     if data.startswith('approve_'):
         user_id = int(data.split('_')[1])
-        database.approve_user(user_id) 
+        database.approve_user(user_id) # Save to Postgres
         
         await event.answer("✅ User Approved!", alert=True)
         await event.edit(f"✅ User {user_id} has been activated in the database.")
@@ -53,6 +56,7 @@ async def callback(event):
         except:
             pass
 
+    # Handle Reject Click
     elif data.startswith('reject_'):
         user_id = int(data.split('_')[1])
         await event.answer("❌ Payment Rejected", alert=True)
@@ -84,7 +88,7 @@ async def broadcast(event):
         try:
             await client.send_message(user_id, broadcast_msg)
             count += 1
-            await asyncio.sleep(0.05)
+            await asyncio.sleep(0.05) # Prevent Flood
         except:
             pass
             
