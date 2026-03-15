@@ -15,6 +15,32 @@ logging.basicConfig(level=logging.INFO)
 client = TelegramClient('mr_white_final_v12', config.API_ID, config.API_HASH, connection_retries=None)
 
 # --- 1. ADMIN MANAGEMENT COMMANDS ---
+
+# FIXED: Added Broadcast Handler
+@client.on(events.NewMessage(pattern=r'/broadcast ([\s\S]*)'))
+async def broadcast(event):
+    if event.sender_id != config.ADMIN_ID: return
+    msg_text = event.pattern_match.group(1).strip()
+    
+    conn = database.get_connection(); cur = conn.cursor()
+    cur.execute("SELECT user_id FROM subscribers"); users = cur.fetchall()
+    cur.close(); conn.close()
+    
+    status_msg = await event.reply(f"📣 **Broadcasting to {len(users)} users...**")
+    success, blocked = 0, 0
+    
+    for user in users:
+        try:
+            await client.send_message(user[0], msg_text)
+            success += 1
+            await asyncio.sleep(0.2) # Safety delay
+        except (UserIsBlockedError, PeerIdInvalidError):
+            blocked += 1
+        except Exception:
+            continue
+            
+    await status_msg.edit(f"✅ **Broadcast complete!**\nSent: **{success}**\nBlocked/Removed: **{blocked}**")
+
 @client.on(events.NewMessage(pattern=r'/sleep (on|off)'))
 async def toggle_sleep(event):
     global sleep_mode_active
