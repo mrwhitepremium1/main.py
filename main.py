@@ -12,9 +12,29 @@ sleep_mode_active = False
 OFFLINE_MSG = "🌙 **Mr. White is currently offline.**\nYour message has been received and will be reviewed as soon as he is back online. Thank you for your patience! 🎯"
 
 logging.basicConfig(level=logging.INFO)
-client = TelegramClient('mr_white_final_v21', config.API_ID, config.API_HASH, connection_retries=None)
+client = TelegramClient('mr_white_final_v22', config.API_ID, config.API_HASH, connection_retries=None)
 
-# --- 1. ADMIN: BROADCAST (FIXED FOR MULTI-LINE & MEDIA) ---
+# --- 1. FIXED REPLY COMMAND ---
+# Robust pattern to catch the ID and the full multi-line message
+@client.on(events.NewMessage(pattern=r'/reply (\d+)([\s\S]*)'))
+async def admin_reply(event):
+    if event.sender_id != config.ADMIN_ID: return
+    
+    uid = int(event.pattern_match.group(1))
+    msg = event.pattern_match.group(2).strip()
+    
+    if not msg:
+        return await event.reply("❌ **Error:** Please provide a message after the ID.\nUsage: `/reply 12345 Hello!`")
+
+    try:
+        await client.send_message(uid, f"👨‍💼 **Mr. White Support:**\n\n{msg}")
+        await event.reply(f"✅ **Reply sent to `{uid}`**")
+    except UserIsBlockedError:
+        await event.reply(f"❌ **Failed:** User `{uid}` has blocked the bot.")
+    except Exception as e:
+        await event.reply(f"❌ **Error:** {str(e)}")
+
+# --- 2. ADMIN: BROADCAST (FIXED FOR MULTI-LINE & MEDIA) ---
 @client.on(events.NewMessage(pattern=r'^/(broadcast|boardcast)([\s\S]*)'))
 async def broadcast(event):
     if event.sender_id != config.ADMIN_ID: return
@@ -23,7 +43,7 @@ async def broadcast(event):
     msg_text = event.pattern_match.group(2).strip()
     media = event.media if event.media else None
 
-    # Fallback for media captions if text wasn't in the pattern
+    # Fallback for media captions
     if not msg_text and event.message.message:
         msg_text = event.message.message.replace('/broadcast', '').replace('/boardcast', '').strip()
 
@@ -34,7 +54,7 @@ async def broadcast(event):
     cur.execute("SELECT user_id FROM subscribers"); users = cur.fetchall()
     cur.close(); conn.close()
     
-    status_msg = await event.reply(f"📣 **Broadcasting to {len(users)} users...**")
+    status_msg = await event.reply(f"📣 **Broadcasting...**")
     success, blocked = 0, 0
     
     for user in users:
@@ -51,22 +71,6 @@ async def broadcast(event):
         
     await status_msg.edit(f"✅ **Broadcast Done**\nSent: `{success}`\nBlocked: `{blocked}`")
 
-# --- 2. ADMIN: MANAGEMENT ---
-@client.on(events.NewMessage(pattern=r'/sleep (on|off)'))
-async def toggle_sleep(event):
-    global sleep_mode_active
-    if event.sender_id != config.ADMIN_ID: return
-    sleep_mode_active = (event.pattern_match.group(1).lower() == "on")
-    await event.reply(f"**Sleep Mode {'Enabled 🌙' if sleep_mode_active else 'Disabled ☀️'}**")
-
-@client.on(events.NewMessage(pattern='/users'))
-async def list_users(event):
-    if event.sender_id != config.ADMIN_ID: return
-    conn = database.get_connection(); cur = conn.cursor()
-    cur.execute("SELECT COUNT(*) FROM subscribers"); total = cur.fetchone()[0]
-    cur.close(); conn.close()
-    await event.reply(f"📊 **Total Subscribers:** `{total}`")
-
 # --- 3. START COMMAND (FIXED VISITOR ALERT & USER COUNT) ---
 @client.on(events.NewMessage(pattern='/start'))
 async def start(event):
@@ -75,7 +79,7 @@ async def start(event):
     uid = user.id
     username = user.username if user.username else "No Username"
 
-    # REGISTER USER IMMEDIATELY
+    # REGISTER USER IMMEDIATELY (Prevents stuck user count)
     conn = database.get_connection(); cur = conn.cursor()
     cur.execute("""
         INSERT INTO subscribers (user_id, username, last_seen) 
