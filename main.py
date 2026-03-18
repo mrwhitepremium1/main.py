@@ -3,7 +3,7 @@ import asyncio
 import re
 from datetime import datetime
 from telethon import TelegramClient, events, Button
-from telethon.errors import UserIsBlockedError, PeerIdInvalidError
+from telethon.errors import UserIsBlockedError, PeerIdInvalidError, FloodWaitError
 import config
 import database
 
@@ -12,16 +12,16 @@ sleep_mode_active = False
 OFFLINE_MSG = "🌙 **Mr. White is currently offline.**\nYour message has been received and will be reviewed as soon as he is back online. Thank you for your patience! 🎯"
 
 logging.basicConfig(level=logging.INFO)
-client = TelegramClient('mr_white_master_v39', config.API_ID, config.API_HASH)
+client = TelegramClient('mr_white_master_v41', config.API_ID, config.API_HASH)
 
-# --- 1. ADMIN COMMANDS (TOP PRIORITY) ---
+# --- 1. ADMIN COMMANDS (PRIORITY) ---
 
 @client.on(events.NewMessage(from_users=config.ADMIN_ID))
 async def admin_handler(event):
     global sleep_mode_active
     raw = event.raw_text.lower()
     
-    # BROADCAST
+    # BROADCAST (Flood Protected)
     if raw.startswith(('/broadcast', '/boardcast')):
         msg_text = event.raw_text.split(maxsplit=1)[1] if len(event.raw_text.split()) > 1 else ""
         conn = database.get_connection(); cur = conn.cursor()
@@ -34,60 +34,74 @@ async def admin_handler(event):
                 if event.media: await client.send_file(user[0], event.media, caption=msg_text)
                 else: await client.send_message(user[0], msg_text)
                 success += 1
-                await asyncio.sleep(0.15)
+                await asyncio.sleep(0.3) 
+            except FloodWaitError as e: await asyncio.sleep(e.seconds)
             except: continue
         await status_msg.edit(f"✅ **Broadcast Done**\nSent: {success}")
 
-    # SLEEP
     elif raw.startswith('/sleep'):
         sleep_mode_active = 'on' in raw
-        status = "Enabled 🌙" if sleep_mode_active else "Disabled ☀️"
-        await event.reply(f"**Sleep Mode {status}**")
+        await event.reply(f"**Sleep Mode {'Enabled 🌙' if sleep_mode_active else 'Disabled ☀️'}**")
 
-    # FIND
-    elif raw.startswith('/find'):
-        match = re.search(r'\d+', raw)
-        if match:
-            uid = int(match.group())
-            conn = database.get_connection(); cur = conn.cursor()
-            cur.execute("SELECT username, last_seen FROM subscribers WHERE user_id = %s", (uid,))
-            res = cur.fetchone()
-            cur.close(); conn.close()
-            if res:
-                user_str = f"@{res[0]}" if res[0] else "@No Username"
-                await event.reply(f"🔍 **User Found:**\n🆔 ID: `{uid}`\n👤 User: {user_str}\n🕒 Last Seen: {res[1]}")
-            else: await event.reply("❌ User not found.")
-
-    # USERS (Tracks your 59 subscribers)
     elif raw == '/users':
         conn = database.get_connection(); cur = conn.cursor()
         cur.execute("SELECT COUNT(*) FROM subscribers"); total = cur.fetchone()[0]
         cur.close(); conn.close()
         await event.reply(f"📊 **Total Subscribers: {total}**")
 
-# --- 2. CALLBACKS (APPROVE / REJECT / PAYMENTS) ---
+# --- 2. USER COMMANDS (RESTORED WELCOME MESSAGE) ---
+
+@client.on(events.NewMessage(pattern='/start'))
+async def start(event):
+    user = await event.get_sender()
+    first_name = user.first_name if user.first_name else "Visitor"
+    
+    # Alert Admin
+    await client.send_message(config.ADMIN_ID, f"👤 **New Visitor Alert!**\nName: {first_name}\nID: `{user.id}`")
+    
+    # Save/Update User in Database
+    conn = database.get_connection(); cur = conn.cursor()
+    cur.execute("INSERT INTO subscribers (user_id, username, last_seen) VALUES (%s, %s, %s) ON CONFLICT (user_id) DO UPDATE SET last_seen = %s", (user.id, user.username, datetime.now(), datetime.now()))
+    conn.commit(); cur.close(); conn.close()
+
+    # RESTORED PROFESSIONAL MESSAGE
+    welcome_text = (
+        f"Hello 👋 {first_name}!\n\n"
+        f"**Welcome to Mr. White | Official Bot**\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"💎 **PREMIUM INFO ARRIVED**\n"
+        f"⭐ **CONFIRMED TICKET** 🎫\n\n"
+        f"☑ **Fixed Tips:** Correct Score\n"
+        f"✔ **Verification:** 100% Guaranteed\n\n"
+        f"To access today's confirmed selections, please check the price via the link below and click 'I Have Paid'."
+    )
+    
+    buttons = [
+        [Button.inline("💳 Check Price & Buy Ticket", data="pay_options")],
+        [Button.inline("✅ I Have Paid", data="claim_pay")]
+    ]
+    
+    await client.send_file(event.chat_id, config.COVERED_TICKET_URL, caption=welcome_text, buttons=buttons)
+
+@client.on(events.NewMessage(pattern='/status'))
+async def status_cmd(event):
+    if database.is_user_approved(event.sender_id):
+        await event.reply("📊 Status: Active 🤝\n\nYour subscription is currently active.")
+    else:
+        await event.reply("📊 Status: Inactive ❌\n\nYour subscription is currently inactive.\nPlease purchase a ticket to activate your access.")
+
+# --- 3. CALLBACKS & PAYMENTS ---
 
 @client.on(events.CallbackQuery())
 async def callback_handler(event):
     data = event.data.decode()
     
-    # Admin Approval Logic
-    if data.startswith('app_'):
-        uid = int(data.split('_')[1])
-        database.approve_user_24h(uid, "User")
-        await event.edit(f"✅ Approved {uid}")
-        await client.send_file(uid, config.TICKET_URL, caption="✅ **Payment Verified!** Access granted for 24h.")
-    
-    elif data.startswith('rej_'):
-        uid = int(data.split('_')[1])
-        await event.edit(f"❌ Rejected {uid}")
-        await client.send_message(uid, "❌ **Payment Claim Rejected**\n\nYour payment could not be verified.\nPlease contact support.")
-
-    # Payment Menu
-    elif data == "pay_options":
-        btns = [[Button.url("🌍 Africa (MoMo/Card)", config.SELAR_PAYMENT_LINK)],
-                [Button.inline("💰 Crypto (USDT)", data="pay_crypto")],
-                [Button.inline("⬅️ Back", data="back_start")]]
+    if data == "pay_options":
+        btns = [
+            [Button.url("🌍 Africa (MoMo/Card)", config.SELAR_PAYMENT_LINK)],
+            [Button.inline("💰 Crypto (USDT)", data="pay_crypto")],
+            [Button.inline("⬅️ Back", data="back_start")]
+        ]
         await event.edit("🎯 **Select your payment method:**", buttons=btns)
 
     elif data == "pay_crypto":
@@ -95,26 +109,21 @@ async def callback_handler(event):
                          buttons=[[Button.url("🔗 Pay 40 USD", "https://pay.oxapay.com/10368962")],
                                   [Button.inline("⬅️ Back", data="pay_options")]])
 
-# --- 3. USER COMMANDS ---
+    elif data == "claim_pay":
+        await event.answer("✅ Sent to Admin.", alert=True)
+        btns = [[Button.inline("✅ Approve", data=f"app_{event.sender_id}"), Button.inline("❌ Reject", data=f"rej_{event.sender_id}")]]
+        await client.send_message(config.ADMIN_ID, f"🚨 **New Claim!**\nID: `{event.sender_id}`", buttons=btns)
 
-@client.on(events.NewMessage(pattern='/status'))
-async def status_cmd(event):
-    msg = "📊 Status: Active 🤝\n\nYour subscription is currently active." if database.is_user_approved(event.sender_id) else "📊 Status: Inactive ❌\n\nYour subscription is currently inactive.\nPlease purchase a ticket to activate your access."
-    await event.reply(msg)
-
-@client.on(events.NewMessage(pattern='/support'))
-async def support_cmd(event):
-    await event.reply("💬 **Connected to support.**\nExplain your issue clearly, Mr. White is listening. 🎯")
-
-# --- 4. FORWARDING (PLACED LAST) ---
-
+# --- 4. FORWARDING ---
 @client.on(events.NewMessage())
 async def handle_incoming(event):
     if not event.is_private or event.raw_text.startswith('/') or event.sender_id == config.ADMIN_ID: return
     if sleep_mode_active: await event.reply(OFFLINE_MSG)
     user = await event.get_sender()
-    await client.send_message(config.ADMIN_ID, f"📩 **SUPPORT MESSAGE**\n👤: {user.first_name}\n🆔: `{user.id}`")
-    await client.forward_messages(config.ADMIN_ID, event.message)
+    try:
+        await client.send_message(config.ADMIN_ID, f"📩 **SUPPORT MESSAGE**\n👤: {user.first_name}\n🆔: `{user.id}`")
+        await client.forward_messages(config.ADMIN_ID, event.message)
+    except: pass
 
 async def main():
     await client.start(bot_token=config.BOT_TOKEN)
