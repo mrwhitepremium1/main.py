@@ -13,11 +13,12 @@ OFFLINE_MSG = "🌙 **Mr. White is currently offline.**\nYour message has been r
 pending_replies = {} 
 
 logging.basicConfig(level=logging.INFO)
-client = TelegramClient('mr_white_v54', config.API_ID, config.API_HASH)
+# Use a fresh session name to clear old stuck handlers
+client = TelegramClient('mr_white_v55_final', config.API_ID, config.API_HASH)
 
-# --- 1. THE ONLY MESSAGE HANDLER (STOPS THE LOOP) ---
+# --- 1. THE ONLY MESSAGE HANDLER ---
 @client.on(events.NewMessage(incoming=True))
-async def global_handler(event):
+async def master_handler(event):
     if not event.is_private: return
     global sleep_mode_active, pending_replies
     
@@ -27,9 +28,9 @@ async def global_handler(event):
     text = event.raw_text.strip()
     cmd = text.lower()
 
-    # SECTION A: ADMIN ONLY (YOU)
+    # SECTION A: ADMIN CONTROL (FOR YOU ONLY)
     if uid == config.ADMIN_ID:
-        # 1. Smart Reply (If you are replying to a user)
+        # 1. Handle Active Support Replies (No Forwarding for Admin)
         if uid in pending_replies and not text.startswith('/'):
             target_uid = pending_replies.pop(uid)
             try:
@@ -37,7 +38,7 @@ async def global_handler(event):
                 if event.media: await client.send_file(target_uid, event.media, caption=f"{header}{text}")
                 else: await client.send_message(target_uid, f"{header}{text}")
                 await event.reply(f"✅ **Sent to `{target_uid}`**")
-            except: await event.reply("❌ Error sending.")
+            except: await event.reply("❌ Failed to send.")
             return
 
         # 2. Admin Commands
@@ -53,50 +54,48 @@ async def global_handler(event):
 
         elif cmd.startswith('/sleep'):
             sleep_mode_active = 'off' not in cmd
-            status = "ON 🌙" if sleep_mode_active else "OFF ☀️"
-            await event.reply(f"🛰 **Sleep Mode is now {status}**")
+            await event.reply(f"🛰 **Sleep Mode: {'ON 🌙' if sleep_mode_active else 'OFF ☀️'}**")
             return
 
-        # If Admin sends a message that isn't a command, STOP HERE.
-        # This prevents the bot from forwarding your own messages to you.
+        # VERY IMPORTANT: Stop Admin messages from reaching the "Forward" section
         return
 
-    # SECTION B: USER ONLY (CLIENTS)
+    # SECTION B: USER LOGIC (FOR YOUR CLIENTS)
     else:
-        # 1. Handle Commands First
+        # 1. /START COMMAND
         if cmd == '/start':
-            # Save/Update User in DB
+            # DB Sync
             conn = database.get_connection(); cur = conn.cursor()
             cur.execute("INSERT INTO subscribers (user_id, username, last_seen) VALUES (%s, %s, %s) ON CONFLICT (user_id) DO UPDATE SET last_seen = %s, username = %s", (uid, sender.username, datetime.now(), datetime.now(), sender.username))
             conn.commit(); cur.close(); conn.close()
             
-            # Welcome Message
+            # Welcome Flow
             welcome = (f"Hello 👋 {sender.first_name}!\n\n**Welcome to Mr. White | Official Bot**\n━━━━━━━━━━━━━━━━━━━━\n"
                        "💎 **PREMIUM INFO ARRIVED**\n⭐ **CONFIRMED TICKET** 🎫")
             await client.send_file(uid, config.COVERED_TICKET_URL, caption=welcome, buttons=[
                 [Button.inline("💳 Check Price", data="pay_options")], [Button.inline("✅ I Have Paid", data="claim_pay")]
             ])
             
-            # Alert Admin (Once!)
+            # Alert Admin
             btns = [[Button.inline("💬 Reply", data=f"rep_{uid}"), Button.inline("🚫 Block", data=f"blk_{uid}")]]
             await client.send_message(config.ADMIN_ID, f"👤 **New Visitor!**\nName: {sender.first_name}\nID: `{uid}`", buttons=btns)
             return
 
+        # 2. /STATUS COMMAND
         elif cmd == '/status':
             status = "✅ Active" if database.is_user_approved(uid) else "❌ Inactive"
             await event.reply(f"📊 **Status:** {status}")
             return
 
-        # 2. Handle Support/General Messages (Forwarding)
+        # 3. FORWARDING (Only if not a command)
         if sleep_mode_active: 
             await event.reply(OFFLINE_MSG)
         
         btns = [[Button.inline("💬 Reply", data=f"rep_{uid}"), Button.inline("🚫 Block", data=f"blk_{uid}")]]
         await client.send_message(config.ADMIN_ID, f"📩 **SUPPORT MESSAGE**\n👤: {sender.first_name}\n🆔: `{uid}`", buttons=btns)
         await client.forward_messages(config.ADMIN_ID, event.message)
-        await asyncio.sleep(0.5)
 
-# --- 2. CALLBACK HANDLER (BUTTONS) ---
+# --- 2. CALLBACK HANDLER (STAYS SEPARATE) ---
 @client.on(events.CallbackQuery())
 async def callback_handler(event):
     global pending_replies
@@ -121,7 +120,7 @@ async def callback_handler(event):
 
 async def main():
     await client.start(bot_token=config.BOT_TOKEN)
-    print("Bot is fully online and stabilized.")
+    print("Bot is Cleaned & Stabilized. Running v55...")
     await client.run_until_disconnected()
 
 if __name__ == '__main__': asyncio.run(main())
