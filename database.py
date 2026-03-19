@@ -1,6 +1,9 @@
 import psycopg2
 import os
 from datetime import datetime, timedelta
+import logging
+
+logger = logging.getLogger(__name__)
 
 def get_connection():
     # Railway automatically provides DATABASE_URL
@@ -9,7 +12,7 @@ def get_connection():
 def init_db():
     conn = get_connection()
     cur = conn.cursor()
-    # Table for all users who ever messaged the bot
+    # Table 1: General User Tracking & AI Memory
     cur.execute("""
         CREATE TABLE IF NOT EXISTS subscribers (
             user_id BIGINT PRIMARY KEY,
@@ -19,7 +22,7 @@ def init_db():
             memory TEXT DEFAULT ''
         )
     """)
-    # Table for those who actually paid/were approved
+    # Table 2: VIP Access Tracking
     cur.execute("""
         CREATE TABLE IF NOT EXISTS approved_users (
             user_id BIGINT PRIMARY KEY,
@@ -31,6 +34,7 @@ def init_db():
     conn.commit()
     cur.close()
     conn.close()
+    logger.info("Database tables initialized.")
 
 def get_user_memory(user_id):
     conn = get_connection(); cur = conn.cursor()
@@ -56,6 +60,6 @@ def approve_user_24h(user_id, name="User"):
         INSERT INTO approved_users (user_id, name, expiry_time, approved)
         VALUES (%s, %s, %s, TRUE)
         ON CONFLICT (user_id) DO UPDATE 
-        SET expiry_time = %s, approved = TRUE
-    """, (user_id, name, expiry, expiry))
+        SET expiry_time = EXCLUDED.expiry_time, approved = TRUE
+    """, (user_id, name, expiry))
     conn.commit(); cur.close(); conn.close()
