@@ -1,2 +1,3 @@
 telethon
+openai
 psycopg2-binary
