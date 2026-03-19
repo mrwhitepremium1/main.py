@@ -4,6 +4,7 @@ API_ID = int(os.environ.get("API_ID"))
 API_HASH = os.environ.get("API_HASH")
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 ADMIN_ID = int(os.environ.get("ADMIN_ID"))
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 SELAR_PAYMENT_LINK = os.environ.get("SELAR_PAYMENT_LINK")
 
 # Daily Image Links from Railway Variables
