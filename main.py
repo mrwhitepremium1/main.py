@@ -1,116 +1,270 @@
 import logging
 import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta
 from telethon import TelegramClient, events, Button
-from telethon.errors import FloodWaitError, UserIsBlockedError, PeerIdInvalidError
+from telethon.errors import UserIsBlockedError, PeerIdInvalidError
+import openai
 import config
 import database
 
-# Use a fresh session name to clear any stuck states
-SESSION = 'mr_white_v66_stable'
+# --- CONFIG ---
+openai.api_key = config.OPENAI_API_KEY
 
 logging.basicConfig(level=logging.INFO)
-client = TelegramClient(SESSION, config.API_ID, config.API_HASH)
 
-# --- STATE ---
-pending_replies = {}
+client = TelegramClient('ultimate_bot', config.API_ID, config.API_HASH)
 
-# --- ADMIN GATEKEEPER ---
-@client.on(events.NewMessage(from_users=config.ADMIN_ID, incoming=True))
-async def admin_handler(event):
-    global pending_replies
-    text = event.raw_text.strip()
-    
-    # Quick Reply Logic
-    if event.sender_id in pending_replies and not text.startswith('/'):
-        target_uid = pending_replies.pop(event.sender_id)
-        try:
-            await client.send_message(target_uid, f"👨‍💼 **Mr. White Support:**\n\n{text}")
-            await event.reply(f"✅ **Sent to `{target_uid}`**")
-        except: await event.reply("❌ **Failed.** User might have blocked the bot.")
+sleep_mode_active = False
+client.reply_target = None
+last_admin_reply = {}
+
+# --- 🔥 HOT LEAD DETECTION ---
+def is_hot_lead(msg):
+    keywords = ["price", "buy", "payment", "how much", "interested"]
+    return any(k in msg.lower() for k in keywords)
+
+# --- 🧠 AI MEMORY ---
+async def generate_ai_reply(user_id, message):
+    history = database.get_user_memory(user_id)
+
+    prompt = f"""
+You are Mr. White, a confident Telegram betting expert.
+
+- Be short, human-like
+- Build trust
+- Gently push to buy
+- Create urgency
+
+Conversation:
+{history}
+
+User: {message}
+AI:
+"""
+
+    try:
+        res = openai.ChatCompletion.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=120
+        )
+
+        reply = res.choices[0].message["content"]
+
+        new_history = (history + f"\nUser:{message}\nAI:{reply}")[-2000:]
+        database.save_user_memory(user_id, new_history)
+
+        return reply
+
+    except:
+        return "🤖 Please wait, support will reply."
+
+# --- ⏱ FOLLOW UP ---
+async def follow_up(user_id):
+    await asyncio.sleep(600)
+
+    try:
+        await client.send_message(
+            user_id,
+            "👋 Still interested? Slots are filling fast.",
+            buttons=[[Button.url("💳 Buy Now", config.SELAR_PAYMENT_LINK)]]
+        )
+    except:
+        pass
+
+# --- ⏱ EXPIRY CHECK ---
+async def expiry_checker():
+    while True:
+        conn = database.get_connection()
+        cur = conn.cursor()
+
+        cur.execute("SELECT user_id FROM subscribers WHERE approved=1 AND expiry < NOW()")
+        users = cur.fetchall()
+
+        for u in users:
+            uid = u[0]
+            await client.send_message(uid, "⏱ Subscription expired.")
+            cur.execute("UPDATE subscribers SET approved=0 WHERE user_id=%s", (uid,))
+
+        conn.commit()
+        cur.close()
+        conn.close()
+
+        await asyncio.sleep(60)
+
+# --- ADMIN REPLY ---
+@client.on(events.NewMessage(from_users=config.ADMIN_ID))
+async def admin_reply(event):
+    if client.reply_target:
+        uid = client.reply_target
+
+        await client.send_message(uid, f"👨‍💼 Support:\n\n{event.raw_text}")
+        await event.reply(f"✅ Sent to {uid}")
+
+        last_admin_reply[uid] = datetime.now()
+        client.reply_target = None
+
+# --- HANDLE USERS ---
+@client.on(events.NewMessage())
+async def handle(event):
+    if not event.is_private or event.sender_id == config.ADMIN_ID:
         return
 
-    # Admin Commands
-    cmd = text.lower()
-    if cmd == '/users':
-        conn = database.get_connection(); cur = conn.cursor()
-        cur.execute("SELECT COUNT(*) FROM subscribers"); total = cur.fetchone()[0]
-        cur.close(); conn.close()
-        await event.reply(f"📊 **Total Subscribers:** {total}")
+    if event.raw_text.startswith('/'):
+        return
 
-# --- USER HANDLER (RE-ACTIVATED) ---
-@client.on(events.NewMessage(incoming=True))
-async def user_handler(event):
-    # CRITICAL: This line stops the bot from ignoring itself or looping
-    if event.sender_id == config.ADMIN_ID: return 
-    if not event.is_private: return
+    # BLOCK CHECK
+    conn = database.get_connection()
+    cur = conn.cursor()
 
-    uid = event.sender_id
-    text = event.raw_text.strip().lower()
+    cur.execute("SELECT user_id FROM subscribers WHERE user_id=%s", (event.sender_id,))
+    if not cur.fetchone():
+        return
 
-    # THE WELCOME MESSAGE LOGIC
-    if text == '/start':
-        sender = await event.get_sender()
-        
-        # Save to DB
-        conn = database.get_connection(); cur = conn.cursor()
-        cur.execute("INSERT INTO subscribers (user_id, username, last_seen) VALUES (%s, %s, %s) ON CONFLICT (user_id) DO UPDATE SET last_seen = %s", (uid, sender.username, datetime.now(), datetime.now()))
-        conn.commit(); cur.close(); conn.close()
-        
-        # Welcome Content
-        welcome_text = (
-            f"Hello 👋 {sender.first_name}!\n\n"
-            "**Welcome to Mr. White | Official Bot**\n"
-            "━━━━━━━━━━━━━━━━━━━━\n"
-            "💎 **PREMIUM INFO ARRIVED**\n"
-            "⭐ **CONFIRMED TICKET** 🎫\n\n"
-            "✅ **Fixed Tips:** Correct Score\n"
-            "⚡ **Verification:** 100% Guaranteed"
-        )
-        
-        btns = [
-            [Button.url("💰 Crypto (Automatic)", "https://pay.oxapay.com/10368962")],
-            [Button.url("🌍 Africa (MoMo/Card)", config.SELAR_PAYMENT_LINK)],
+    cur.close()
+    conn.close()
+
+    # SAVE USER
+    user = await event.get_sender()
+
+    conn = database.get_connection()
+    cur = conn.cursor()
+
+    cur.execute("""
+        INSERT INTO subscribers (user_id, username, last_seen)
+        VALUES (%s,%s,%s)
+        ON CONFLICT (user_id) DO UPDATE SET last_seen=%s
+    """, (user.id, user.username, datetime.now(), datetime.now()))
+
+    conn.commit()
+    cur.close()
+    conn.close()
+
+    # HOT LEAD
+    if is_hot_lead(event.raw_text):
+        database.mark_hot_lead(user.id)
+
+    # FORWARD TO ADMIN WITH BUTTONS
+    buttons = [
+        [Button.inline("💬 Reply", data=f"reply_{user.id}")],
+        [Button.inline("🚫 Block", data=f"block_{user.id}")]
+    ]
+
+    await client.send_message(
+        config.ADMIN_ID,
+        f"📩 {user.first_name}\nID: `{user.id}`",
+        buttons=buttons
+    )
+
+    await client.forward_messages(config.ADMIN_ID, event.message)
+
+    # FOLLOW UP
+    client.loop.create_task(follow_up(user.id))
+
+    # AI CONTROL
+    if user.id in last_admin_reply:
+        diff = (datetime.now() - last_admin_reply[user.id]).seconds
+        if diff < 120:
+            return
+
+    # AI REPLY
+    reply = await generate_ai_reply(user.id, event.raw_text)
+
+    await asyncio.sleep(2)
+
+    await event.reply(
+        f"🤖 {reply}",
+        buttons=[
+            [Button.url("💳 Buy Now", config.SELAR_PAYMENT_LINK)],
             [Button.inline("✅ I Have Paid", data="claim_pay")]
         ]
-        
-        # Send Welcome File (Video/GIF/Photo)
-        await client.send_file(uid, config.COVERED_TICKET_URL, caption=welcome_text, buttons=btns)
-        
-        # Notify Admin with Quick Controls
-        admin_btns = [[Button.inline("💬 Reply", data=f"qr_{uid}"), Button.inline("🚫 Block", data=f"preblk_{uid}")]]
-        await client.send_message(config.ADMIN_ID, f"👤 **New Visitor!**\nName: {sender.first_name}\nID: `{uid}`", buttons=admin_btns)
-    
-    elif not text.startswith('/'):
-        # Forward Support Messages
-        admin_btns = [[Button.inline("💬 Reply", data=f"qr_{uid}"), Button.inline("🚫 Block", data=f"preblk_{uid}")]]
-        await client.send_message(config.ADMIN_ID, f"📩 **MESSAGE FROM `{uid}`**", buttons=admin_btns)
-        await client.forward_messages(config.ADMIN_ID, event.message)
+    )
 
 # --- CALLBACKS ---
 @client.on(events.CallbackQuery())
-async def callback_handler(event):
+async def callbacks(event):
     data = event.data.decode()
-    if data.startswith('qr_'):
-        uid = int(data.split('_')[1])
-        pending_replies[config.ADMIN_ID] = uid
-        await event.answer("✍️ Type your reply now...", alert=True)
-    elif data.startswith('preblk_'):
-        uid = int(data.split('_')[1])
-        await event.edit(f"⚠️ **Block `{uid}`?**", buttons=[[Button.inline("✅ YES", data=f"c_{uid}"), Button.inline("❌ NO", data="cancel")]])
-    elif data.startswith('c_'):
-        uid = int(data.split('_')[1])
-        conn = database.get_connection(); cur = conn.cursor()
-        cur.execute("DELETE FROM subscribers WHERE user_id = %s", (uid,))
-        conn.commit(); cur.close(); conn.close()
-        await event.edit(f"🛑 User `{uid}` Blocked.")
 
+    if data.startswith("reply_"):
+        client.reply_target = int(data.split("_")[1])
+        await event.answer("Send reply now")
+
+    elif data.startswith("block_"):
+        uid = int(data.split("_")[1])
+
+        conn = database.get_connection()
+        cur = conn.cursor()
+
+        cur.execute("DELETE FROM subscribers WHERE user_id=%s", (uid,))
+        conn.commit()
+
+        cur.close()
+        conn.close()
+
+        await event.edit("🚫 User blocked")
+
+    elif data == "claim_pay":
+        user = await event.get_sender()
+
+        await client.send_message(
+            config.ADMIN_ID,
+            f"Payment claim from {user.id}",
+            buttons=[[Button.inline("Approve", data=f"app_{user.id}")]]
+        )
+
+    elif data.startswith("app_"):
+        uid = int(data.split("_")[1])
+
+        database.approve_user_24h(uid)
+
+        await client.send_message(uid, "✅ Approved (24h access)")
+
+# --- STATS ---
+@client.on(events.NewMessage(pattern='/stats'))
+async def stats(event):
+    if event.sender_id != config.ADMIN_ID:
+        return
+
+    conn = database.get_connection()
+    cur = conn.cursor()
+
+    cur.execute("SELECT COUNT(*) FROM subscribers")
+    total = cur.fetchone()[0]
+
+    cur.execute("SELECT COUNT(*) FROM subscribers WHERE is_hot=1")
+    hot = cur.fetchone()[0]
+
+    cur.close()
+    conn.close()
+
+    await event.reply(f"Users: {total}\nHot Leads: {hot}")
+
+# --- HOT LIST ---
+@client.on(events.NewMessage(pattern='/hot'))
+async def hot(event):
+    if event.sender_id != config.ADMIN_ID:
+        return
+
+    conn = database.get_connection()
+    cur = conn.cursor()
+
+    cur.execute("SELECT user_id FROM subscribers WHERE is_hot=1 LIMIT 20")
+    users = cur.fetchall()
+
+    msg = "🔥 Hot Leads:\n"
+    for u in users:
+        msg += f"{u[0]}\n"
+
+    await event.reply(msg)
+
+# --- MAIN ---
 async def main():
-    try:
-        await client.start(bot_token=config.BOT_TOKEN)
-        print("✅ Mr. White v66 Online. Your Welcome Message is active.")
-        await client.run_until_disconnected()
-    except FloodWaitError as e:
-        print(f"🛑 Telegram Lock: Wait {e.seconds}s")
+    database.init_db()
+    await client.start(bot_token=config.BOT_TOKEN)
 
-if __name__ == '__main__': asyncio.run(main())
+    client.loop.create_task(expiry_checker())
+
+    print("🚀 Ultimate Bot Running")
+    await client.run_until_disconnected()
+
+asyncio.run(main())
