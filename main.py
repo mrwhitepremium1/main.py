@@ -1,6 +1,5 @@
 import logging
 import asyncio
-import time
 from datetime import datetime
 from telethon import TelegramClient, events, Button
 from telethon.errors import FloodWaitError, UserIsBlockedError, PeerIdInvalidError
@@ -9,154 +8,124 @@ import database
 
 # --- SETTINGS ---
 sleep_mode_active = False 
-OFFLINE_MSG = "🌙 **Mr. White is currently offline.**\nYour message has been received and will be reviewed as soon as he is back online. Thank you for your patience! 🎯"
+OFFLINE_MSG = "🌙 **Mr. White is currently offline.**\nYour message has been received. 🎯"
+pending_replies = {}
 
 logging.basicConfig(level=logging.INFO)
-client = TelegramClient('mr_white_master_v32', config.API_ID, config.API_HASH, connection_retries=None)
+client = TelegramClient('mr_white_master_v67', config.API_ID, config.API_HASH)
 
-# --- 1. ADMIN COMMANDS (PRIORITY) ---
+# --- 1. ADMIN LOGIC (COMMANDS & REPLIES) ---
 
-@client.on(events.NewMessage(pattern=r'^/reply\s+(\d+)\s+([\s\S]*)'))
-async def admin_reply(event):
-    if event.sender_id != config.ADMIN_ID: return
-    uid = int(event.pattern_match.group(1))
-    msg_content = event.pattern_match.group(2).strip()
-    try:
-        await client.send_message(uid, f"👨‍💼 **Mr. White Support:**\n\n{msg_content}")
-        await event.reply(f"✅ **Reply sent to `{uid}`**")
-    except Exception as e:
-        await event.reply(f"❌ **Error:** {str(e)}")
+@client.on(events.NewMessage(from_users=config.ADMIN_ID, incoming=True))
+async def admin_handler(event):
+    global pending_replies, sleep_mode_active
+    text = event.raw_text.strip()
+    cmd = text.lower()
 
-# NEW: BLOCK COMMAND
-@client.on(events.NewMessage(pattern=r'/block (\d+)'))
-async def block_user(event):
-    if event.sender_id != config.ADMIN_ID: return
-    uid = int(event.pattern_match.group(1))
-    conn = database.get_connection(); cur = conn.cursor()
-    # Check if user exists
-    cur.execute("SELECT user_id FROM subscribers WHERE user_id = %s", (uid,))
-    if cur.fetchone():
-        cur.execute("DELETE FROM subscribers WHERE user_id = %s", (uid,))
-        conn.commit()
-        await event.reply(f"🚫 **User `{uid}` has been blocked and removed from the database.**")
-    else:
-        await event.reply("❌ User ID not found in database.")
-    cur.close(); conn.close()
-
-@client.on(events.NewMessage(pattern=r'^/(broadcast|boardcast)([\s\S]*)'))
-async def broadcast(event):
-    if event.sender_id != config.ADMIN_ID: return
-    msg_text = event.pattern_match.group(2).strip()
-    media = event.media if event.media else None
-    conn = database.get_connection(); cur = conn.cursor()
-    cur.execute("SELECT user_id FROM subscribers"); users = cur.fetchall()
-    cur.close(); conn.close()
-    status_msg = await event.reply(f"📣 **Broadcasting...**")
-    success, blocked_count = 0, 0
-    for user in users:
+    # Quick Reply Handler
+    if event.sender_id in pending_replies and not text.startswith('/'):
+        target_uid = pending_replies.pop(event.sender_id)
         try:
-            if media: await client.send_file(user[0], media, caption=msg_text)
-            else: await client.send_message(user[0], msg_text)
-            success += 1
-            await asyncio.sleep(0.15) 
-        except (UserIsBlockedError, PeerIdInvalidError):
-            blocked_count += 1
-        except Exception: continue
-    await status_msg.edit(f"✅ **Broadcast Done**\nSent: {success}\nBlocked: {blocked_count}")
+            await client.send_message(target_uid, f"👨‍💼 **Mr. White Support:**\n\n{text}")
+            await event.reply(f"✅ **Sent to `{target_uid}`**")
+        except: await event.reply("❌ **Failed.** User blocked the bot.")
+        return
 
-@client.on(events.NewMessage(pattern=r'/sleep (on|off)'))
-async def toggle_sleep(event):
-    global sleep_mode_active
-    if event.sender_id != config.ADMIN_ID: return
-    sleep_mode_active = (event.pattern_match.group(1).lower() == "on")
-    status = "Enabled 🌙" if sleep_mode_active else "Disabled ☀️"
-    await event.reply(f"**Sleep Mode {status}**")
+    # Standard Commands
+    if cmd == '/users':
+        conn = database.get_connection(); cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) FROM subscribers"); total = cur.fetchone()[0]
+        cur.close(); conn.close()
+        await event.reply(f"📊 **Total Subscribers:** {total}")
 
-@client.on(events.NewMessage(pattern=r'/find (\d+)'))
-async def find_user(event):
-    if event.sender_id != config.ADMIN_ID: return
-    uid = int(event.pattern_match.group(1))
-    conn = database.get_connection(); cur = conn.cursor()
-    cur.execute("SELECT username, last_seen FROM subscribers WHERE user_id = %s", (uid,))
-    res = cur.fetchone()
-    cur.close(); conn.close()
-    if res:
-        user_str = f"@{res[0]}" if res[0] else "@No Username"
-        await event.reply(f"🔍 **User Found:**\n🆔 ID: `{uid}`\n👤 User: {user_str}\n🕒 Last Seen: {res[1]}")
-    else:
-        await event.reply("❌ User not found.")
-
-@client.on(events.NewMessage(pattern='/users'))
-async def list_users(event):
-    if event.sender_id != config.ADMIN_ID: return
-    conn = database.get_connection(); cur = conn.cursor()
-    cur.execute("SELECT COUNT(*) FROM subscribers"); total = cur.fetchone()[0]
-    cur.close(); conn.close()
-    await event.reply(f"📊 **Total Subscribers:** {total}")
+    elif cmd.startswith('/sleep'):
+        sleep_mode_active = ("on" in cmd)
+        await event.reply(f"🌙 Sleep Mode: {'Enabled' if sleep_mode_active else 'Disabled'}")
 
 # --- 2. USER COMMANDS ---
 
-@client.on(events.NewMessage(pattern='/start'))
+@client.on(events.NewMessage(pattern='/start', incoming=True))
 async def start(event):
+    if event.sender_id == config.ADMIN_ID: return
     user = await event.get_sender()
-    uid = user.id
-    first_name = user.first_name if user.first_name else "No Name"
-    username = f"@{user.username}" if user.username else "@No Username"
+    uid, first_name = user.id, user.first_name or "User"
+    
+    # DB Update
     conn = database.get_connection(); cur = conn.cursor()
-    cur.execute("INSERT INTO subscribers (user_id, username, last_seen) VALUES (%s, %s, %s) ON CONFLICT (user_id) DO UPDATE SET last_seen = %s, username = %s", (uid, user.username, datetime.now(), datetime.now(), user.username))
+    cur.execute("INSERT INTO subscribers (user_id, username, last_seen) VALUES (%s, %s, %s) ON CONFLICT (user_id) DO UPDATE SET last_seen = %s", (uid, user.username, datetime.now(), datetime.now()))
     conn.commit(); cur.close(); conn.close()
-    await client.send_message(config.ADMIN_ID, f"👤 **New Visitor Alert!**\nName: {first_name}\nID: `{uid}`\nUser: {username}")
-    buttons = [[Button.url("💳 Check Price & Buy Ticket", config.SELAR_PAYMENT_LINK)], [Button.inline("✅ I Have Paid", data="claim_pay")]]
-    welcome_text = (f"Hello 👋 {first_name}!\n\n**Welcome to Mr. White | Official Bot**\n━━━━━━━━━━━━━━━━━━━━\n"
-                    f"💎 **PREMIUM INFO ARRIVED**\n⭐ **CONFIRMED TICKET** 🎫\n\n☑ **Fixed Tips:** Correct Score\n"
-                    f"✔ **Verification:** 100% Guaranteed\n\nTo access today's confirmed selections, please check the price via the link below and click 'I Have Paid'.")
-    await client.send_file(event.chat_id, config.COVERED_TICKET_URL, caption=welcome_text, buttons=buttons)
+    
+    # Welcome UI
+    welcome = (f"Hello 👋 {first_name}!\n\n**Welcome to Mr. White | Official Bot**\n━━━━━━━━━━━━━━━━━━━━\n"
+               "💎 **PREMIUM INFO ARRIVED**\n⭐ **CONFIRMED TICKET** 🎫\n\n"
+               "☑ **Fixed Tips:** Correct Score\n✔ **Verification:** 100% Guaranteed")
+    
+    btns = [[Button.url("💰 Crypto (Automatic)", "https://pay.oxapay.com/10368962")],
+            [Button.url("🌍 Africa (MoMo/Card)", config.SELAR_PAYMENT_LINK)],
+            [Button.inline("✅ I Have Paid", data="claim_pay")]]
+    
+    await client.send_file(uid, config.COVERED_TICKET_URL, caption=welcome, buttons=btns)
+    
+    # Admin Alert with Reply/Block
+    adm_btns = [[Button.inline("💬 Reply", data=f"qr_{uid}"), Button.inline("🚫 Block", data=f"preblk_{uid}")]]
+    await client.send_message(config.ADMIN_ID, f"👤 **New Visitor!**\nName: {first_name}\nID: `{uid}`", buttons=adm_btns)
 
-@client.on(events.NewMessage(pattern='/status'))
+@client.on(events.NewMessage(pattern='/status', incoming=True))
 async def status_cmd(event):
     if database.is_user_approved(event.sender_id):
-        await event.reply("📊 Status: Active 🤝\n\nYour subscription is currently active.")
+        await event.reply("📊 Status: **Active** ✅\nYour subscription is currently active.")
     else:
-        await event.reply("📊 Status: Inactive ❌\n\nYour subscription is currently inactive.\nPlease purchase a ticket to activate your access.")
+        await event.reply("📊 Status: **Inactive** ❌\nPlease purchase a ticket to activate access.")
 
-@client.on(events.NewMessage(pattern='/support'))
-async def support_cmd(event):
-    await event.reply("💬 **Connected to support.**\nExplain your issue clearly, Mr. White is listening. 🎯")
+# --- 3. FORWARDING & CALLBACKS ---
 
-# --- 3. FORWARDING (PLACED LAST) ---
-
-@client.on(events.NewMessage())
-async def handle_incoming(event):
-    if not event.is_private or event.raw_text.startswith('/') or event.sender_id == config.ADMIN_ID:
-        return
-    if sleep_mode_active:
-        await event.reply(OFFLINE_MSG)
+@client.on(events.NewMessage(incoming=True))
+async def support_forward(event):
+    if not event.is_private or event.raw_text.startswith('/') or event.sender_id == config.ADMIN_ID: return
+    if sleep_mode_active: await event.reply(OFFLINE_MSG)
+    
     user = await event.get_sender()
-    await client.send_message(config.ADMIN_ID, f"📩 **SUPPORT MESSAGE**\n👤: {user.first_name}\n🆔: `{user.id}`")
+    adm_btns = [[Button.inline("💬 Reply", data=f"qr_{user.id}"), Button.inline("🚫 Block", data=f"preblk_{user.id}")]]
+    await client.send_message(config.ADMIN_ID, f"📩 **MSG FROM `{user.id}`**", buttons=adm_btns)
     await client.forward_messages(config.ADMIN_ID, event.message)
-
-# --- 4. CALLBACKS ---
 
 @client.on(events.CallbackQuery())
 async def callback_handler(event):
+    global pending_replies
     data = event.data.decode()
-    if data == "claim_pay":
+    
+    if data.startswith('qr_'):
+        uid = int(data.split('_')[1])
+        pending_replies[config.ADMIN_ID] = uid
+        await event.answer("✍️ Type your reply now...", alert=True)
+
+    elif data.startswith('preblk_'):
+        uid = int(data.split('_')[1])
+        await event.edit(f"⚠️ **Block `{uid}`?**", buttons=[[Button.inline("✅ YES", data=f"confblk_{uid}"), Button.inline("❌ NO", data="cancel")]])
+
+    elif data.startswith('confblk_'):
+        uid = int(data.split('_')[1])
+        conn = database.get_connection(); cur = conn.cursor()
+        cur.execute("DELETE FROM subscribers WHERE user_id = %s", (uid,))
+        conn.commit(); cur.close(); conn.close()
+        await event.edit(f"🛑 **User `{uid}` Blocked.**")
+
+    elif data == "cancel": await event.edit("✅ Action Cancelled.")
+
+    elif data == "claim_pay":
         user = await event.get_sender()
         await event.answer("✅ Sent to Admin.", alert=True)
-        btns = [[Button.inline("✅ Approve", data=f"app_{user.id}"), Button.inline("❌ Reject", data=f"rej_{user.id}")]]
-        await client.send_message(config.ADMIN_ID, f"🚨 **New Claim!**\nID: `{user.id}`", buttons=btns)
+        btns = [[Button.inline("✅ Approve", data=f"app_{user.id}"), Button.inline("💬 Reply", data=f"qr_{user.id}")]]
+        await client.send_message(config.ADMIN_ID, f"🚨 **PAYMENT CLAIM!**\nID: `{user.id}`", buttons=btns)
+
     elif data.startswith('app_'):
         uid = int(data.split('_')[1])
         database.approve_user_24h(uid, "User")
         await event.edit(f"✅ Approved {uid}")
-        await client.send_file(uid, config.TICKET_URL, caption="✅ **Payment Verified**\n\nYour ticket has been issued for 24 hours.")
-    elif data.startswith('rej_'):
-        uid = int(data.split('_')[1])
-        await event.edit(f"❌ Rejected {uid}")
-        await client.send_message(uid, "❌ **Payment Claim Rejected**\n\nYour payment could not be verified.\nPlease contact support.")
+        await client.send_file(uid, config.TICKET_URL, caption="✅ **Verified**\nTicket issued for 24h.")
 
 async def main():
-    database.init_db()
+    database.init_db() # This now handles the ALTER TABLE logic we discussed
     await client.start(bot_token=config.BOT_TOKEN)
     await client.run_until_disconnected()
 
