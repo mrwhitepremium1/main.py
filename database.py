@@ -17,12 +17,13 @@ def init_db():
             approved_until TIMESTAMP DEFAULT NULL,
             plan_type TEXT DEFAULT 'Free'
         )''')
+        # Migration logic to ensure existing DBs are up to date
         cur.execute("ALTER TABLE subscribers ADD COLUMN IF NOT EXISTS approved_until TIMESTAMP DEFAULT NULL;")
         cur.execute("ALTER TABLE subscribers ADD COLUMN IF NOT EXISTS plan_type TEXT DEFAULT 'Free';")
         conn.commit()
-        print("✅ DB Initialized & Schema Migrated.")
+        print("✅ Database Initialized & Schema Migrated.")
     except Exception as e:
-        print(f"❌ DB Error: {e}")
+        print(f"❌ Database Error: {e}")
         conn.rollback()
     finally:
         cur.close(); conn.close()
