@@ -5,13 +5,13 @@ from telethon import TelegramClient, events, Button
 import config, database
 
 logging.basicConfig(level=logging.INFO)
-client = TelegramClient('mr_white_vision_v73', config.API_ID, config.API_HASH)
+client = TelegramClient('mr_white_v74', config.API_ID, config.API_HASH)
 pending_replies = {}
 sleep_mode_active = False
 
-# --- 1. SHARED COMMANDS (/start, /status, /support) ---
+# --- 1. CORE COMMANDS (START, STATUS, SUPPORT) ---
 @client.on(events.NewMessage(pattern=r'^/(start|status|support)'))
-async def shared_commands(event):
+async def core_commands(event):
     cmd = event.pattern_match.group(1).lower()
     uid = event.sender_id
     user = await event.get_sender()
@@ -39,15 +39,15 @@ async def shared_commands(event):
 
     elif cmd == 'status':
         is_active = database.is_user_approved(uid)
-        status_text = "📊 Status: **Active** ✅" if is_active else "📊 Status: **Inactive** ❌"
-        await event.reply(status_text)
+        msg = "📊 Status: **Active** ✅" if is_active else "📊 Status: **Inactive** ❌"
+        await event.reply(msg)
 
     elif cmd == 'support':
         await event.reply("💬 **Connected to Support.**\nExplain your issue clearly; Mr. White is listening. 🎯")
 
-# --- 2. ADMIN ACTIONS (/users, /broadcast, /sleep, and REPLIES) ---
+# --- 2. ADMIN SUITE (/users, /broadcast, /sleep, REPLIES) ---
 @client.on(events.NewMessage(from_users=config.ADMIN_ID))
-async def admin_logic(event):
+async def admin_suite(event):
     global pending_replies, sleep_mode_active
     text = event.raw_text.strip()
     
@@ -57,6 +57,9 @@ async def admin_logic(event):
             cur.execute("SELECT COUNT(*) FROM subscribers"); total = cur.fetchone()[0]
             cur.close(); conn.close()
             await event.reply(f"📊 **Total Subscribers:** {total}")
+        elif text.lower().startswith('/sleep'):
+            sleep_mode_active = ("on" in text.lower())
+            await event.reply(f"**Sleep Mode {'Enabled 🌙' if sleep_mode_active else 'Disabled ☀️'}**")
         elif text.lower().startswith('/broadcast'):
             msg = text[10:].strip()
             media = await event.get_reply_message() if event.is_reply else None
@@ -71,12 +74,12 @@ async def admin_logic(event):
                 except: continue
             await event.reply("✅ **Broadcast Done.**")
     
-    elif event.sender_id in pending_replies:
+    elif event.sender_id in pending_replies and not text.startswith('/'):
         uid = pending_replies.pop(event.sender_id)
         await client.send_message(uid, f"👨‍💼 **Mr. White Support:**\n\n{text}")
         await event.reply(f"✅ **Replied to `{uid}`**")
 
-# --- 3. SUPPORT FORWARDING (USER -> ADMIN) ---
+# --- 3. SUPPORT FORWARDING ---
 @client.on(events.NewMessage(incoming=True))
 async def support_forwarder(event):
     if event.sender_id == config.ADMIN_ID or event.raw_text.startswith('/') or not event.is_private:
@@ -88,7 +91,7 @@ async def support_forwarder(event):
 
 # --- 4. CALLBACKS (APPROVE, REJECT, BLOCK, CLAIM) ---
 @client.on(events.CallbackQuery())
-async def callbacks(event):
+async def callback_handler(event):
     global pending_replies
     data = event.data.decode()
 
@@ -101,15 +104,20 @@ async def callbacks(event):
     elif data.startswith('app_'):
         uid = int(data.split('_')[1])
         database.approve_user_24h(uid)
-        msg = ("✅ **PAYMENT VERIFIED**\n━━━━━━━━━━━━━━━━━━━━\n🎫 **YOUR OFFICIAL TICKET HAS BEEN ISSUED**\n\n"
-               "Your access is active for **24 Hours**. Please find selections on the ticket above.")
+        msg = ("✅ **PAYMENT VERIFIED**\n━━━━━━━━━━━━━━━━━━━━\n"
+               "🎫 **YOUR OFFICIAL TICKET HAS BEEN ISSUED**\n\n"
+               "Your access is now active for **24 Hours**. Please find your confirmed selections on the ticket above.\n\n"
+               "🤝 **Good Luck & Stay Disciplined.**")
         await client.send_file(uid, config.TICKET_URL, caption=msg)
         await event.edit(f"✅ **Approved `{uid}`**")
 
     elif data.startswith('rej_'):
         uid = int(data.split('_')[1])
-        msg = ("❌ **Payment Rejected**\n\nWe could not verify your payment. Contact support with proof.")
-        await client.send_message(uid, msg)
+        reject_msg = ("❌ **Payment Rejected**\n\nWe could not verify your payment.\n\n"
+                      "If you have already made a payment, kindly contact support immediately "
+                      "with your proof of payment (screenshot or transaction ID) for manual confirmation.\n\n"
+                      "**Support:** /support")
+        await client.send_message(uid, reject_msg)
         await event.edit(f"❌ **Rejected `{uid}`**")
 
     elif data.startswith('blk_'):
