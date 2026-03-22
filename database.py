@@ -25,6 +25,12 @@ def init_db():
     finally:
         cur.close(); conn.close()
 
+def get_user_info(user_id):
+    conn = get_connection(); cur = conn.cursor()
+    cur.execute("SELECT user_id, username, last_seen, approved_until FROM subscribers WHERE user_id = %s", (user_id,))
+    res = cur.fetchone(); cur.close(); conn.close()
+    return res
+
 def approve_user_24h(user_id):
     conn = get_connection(); cur = conn.cursor()
     expiry = datetime.now() + timedelta(hours=24)
