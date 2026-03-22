@@ -10,6 +10,7 @@ def init_db():
     conn = get_connection()
     cur = conn.cursor()
     try:
+        # Create table with all necessary columns
         cur.execute('''CREATE TABLE IF NOT EXISTS subscribers (
             user_id BIGINT PRIMARY KEY,
             username TEXT,
@@ -17,13 +18,15 @@ def init_db():
             approved_until TIMESTAMP DEFAULT NULL,
             plan_type TEXT DEFAULT 'Free'
         )''')
-        # Migration logic to ensure existing DBs are up to date
+        
+        # Ensure columns exist in case of old database versions
         cur.execute("ALTER TABLE subscribers ADD COLUMN IF NOT EXISTS approved_until TIMESTAMP DEFAULT NULL;")
         cur.execute("ALTER TABLE subscribers ADD COLUMN IF NOT EXISTS plan_type TEXT DEFAULT 'Free';")
+        
         conn.commit()
-        print("✅ Database Initialized & Schema Migrated.")
+        print("✅ DB Initialized & Schema Migrated.")
     except Exception as e:
-        print(f"❌ Database Error: {e}")
+        print(f"❌ DB Error: {e}")
         conn.rollback()
     finally:
         cur.close(); conn.close()
