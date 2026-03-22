@@ -5,7 +5,7 @@ from telethon import TelegramClient, events, Button
 import config, database
 
 logging.basicConfig(level=logging.INFO)
-client = TelegramClient('mr_white_v76', config.API_ID, config.API_HASH)
+client = TelegramClient('mr_white_v77', config.API_ID, config.API_HASH)
 pending_replies = {}
 sleep_mode_active = False
 
@@ -42,46 +42,54 @@ async def core_commands(event):
     elif cmd == 'support':
         await event.reply("💬 **Connected to Support.**\nExplain your issue clearly; Mr. White is listening. 🎯")
 
-# --- 2. ADMIN SUITE (FIXED MEDIA BROADCAST & REPLIES) ---
+# --- 2. ADMIN SUITE (FIND, BROADCAST, SLEEP) ---
 @client.on(events.NewMessage(from_users=config.ADMIN_ID))
 async def admin_suite(event):
     global pending_replies, sleep_mode_active
     text = event.raw_text.strip()
     
     if text.startswith('/'):
-        if text.lower() == '/users':
+        cmd = text.lower()
+        if cmd == '/users':
             conn = database.get_connection(); cur = conn.cursor()
             cur.execute("SELECT COUNT(*) FROM subscribers"); total = cur.fetchone()[0]
             cur.close(); conn.close(); await event.reply(f"📊 **Total Subscribers:** {total}")
             
-        elif text.lower().startswith('/broadcast'):
+        elif cmd.startswith('/find'):
+            try:
+                search_id = int(text.split(' ')[1])
+                user_data = database.get_user_info(search_id)
+                if user_data:
+                    uid, uname, seen, approved = user_data
+                    active = "✅ Active" if database.is_user_approved(uid) else "❌ Inactive"
+                    await event.reply(f"🔍 **User Found:**\n🆔 **ID:** `{uid}`\n👤 @{uname}\n🕒 **Seen:** {seen}\n📊 {active}")
+                else: await event.reply("❌ User not found.")
+            except: await event.reply("⚠️ Usage: `/find [ID]`")
+
+        elif cmd.startswith('/sleep'):
+            sleep_mode_active = ("on" in cmd)
+            await event.reply(f"**Sleep Mode {'Enabled 🌙' if sleep_mode_active else 'Disabled ☀️'}**")
+
+        elif cmd.startswith('/broadcast'):
             msg_content = text[10:].strip()
             reply_msg = await event.get_reply_message() if event.is_reply else None
-            media_to_send = event.media if event.media else (reply_msg.media if reply_msg else None)
-
-            conn = database.get_connection(); cur = conn.cursor()
-            cur.execute("SELECT user_id FROM subscribers"); users = cur.fetchall(); cur.close(); conn.close()
-            
-            await event.reply(f"🚀 **Broadcasting to {len(users)} users...**")
-            success = 0
+            media = event.media if event.media else (reply_msg.media if reply_msg else None)
+            conn = database.get_connection(); cur = conn.cursor(); cur.execute("SELECT user_id FROM subscribers"); users = cur.fetchall(); cur.close(); conn.close()
             for u in users:
                 try:
-                    if media_to_send: await client.send_file(u[0], media_to_send, caption=msg_content)
+                    if media: await client.send_file(u[0], media, caption=msg_content)
                     else: await client.send_message(u[0], msg_content)
-                    success += 1
                     await asyncio.sleep(0.3)
                 except: continue
-            await event.reply(f"✅ **Broadcast Done.** Sent: {success}")
+            await event.reply("✅ **Broadcast Done.**")
         return
 
     if event.sender_id in pending_replies:
         uid = pending_replies.pop(event.sender_id)
-        try:
-            prefix = "👨‍💼 **Mr. White Support:**\n\n"
-            if event.media: await client.send_file(uid, event.media, caption=f"{prefix}{text}" if text else prefix)
-            else: await client.send_message(uid, f"{prefix}{text}")
-            await event.reply(f"✅ **Replied to `{uid}`**")
-        except: await event.reply("❌ User blocked the bot.")
+        prefix = "👨‍💼 **Mr. White Support:**\n\n"
+        if event.media: await client.send_file(uid, event.media, caption=f"{prefix}{text}" if text else prefix)
+        else: await client.send_message(uid, f"{prefix}{text}")
+        await event.reply(f"✅ **Replied to `{uid}`**")
 
 # --- 3. SUPPORT FORWARDER ---
 @client.on(events.NewMessage(incoming=True))
@@ -92,7 +100,7 @@ async def support_forwarder(event):
     await client.send_message(config.ADMIN_ID, f"📩 **SUPPORT FROM `{user.id}`**", buttons=btns)
     await client.forward_messages(config.ADMIN_ID, event.message)
 
-# --- 4. CALLBACK HANDLERS ---
+# --- 4. CALLBACKS ---
 @client.on(events.CallbackQuery())
 async def callback_handler(event):
     global pending_replies
@@ -124,7 +132,7 @@ async def callback_handler(event):
         await event.edit(f"🛑 **User `{uid}` Deleted.**")
 
     elif data.startswith('qr_'):
-        pending_replies[config.ADMIN_ID] = int(data.split('_')[1]); await event.answer("✍️ Send reply (Text/Media)...", alert=True)
+        pending_replies[config.ADMIN_ID] = int(data.split('_')[1]); await event.answer("✍️ Send reply...", alert=True)
 
 async def main():
     database.init_db(); await client.start(bot_token=config.BOT_TOKEN); await client.run_until_disconnected()
