@@ -5,7 +5,7 @@ from telethon import TelegramClient, events, Button
 import config, database
 
 logging.basicConfig(level=logging.INFO)
-client = TelegramClient('mr_white_v77', config.API_ID, config.API_HASH)
+client = TelegramClient('mr_white_v79', config.API_ID, config.API_HASH)
 pending_replies = {}
 sleep_mode_active = False
 
@@ -24,10 +24,10 @@ async def core_commands(event):
 
         welcome = (f"Hello 👋 {first_name}!\n\n**Welcome to Mr. White | Official Bot**\n━━━━━━━━━━━━━━━━━━━━\n"
                    "💎 **PREMIUM INFO ARRIVED**\n⭐ **CONFIRMED TICKET** 🎫\n\n"
-                   "☑ **Fixed Tips:** Correct Score\n✔ **Verification:** 100% Guaranteed")
-        btns = [[Button.url("🌍 Pay Via Selar", config.SELAR_PAYMENT_LINK)],
-                [Button.url("💰 Crypto (Automatic)", "https://pay.oxapay.com/10368962")],
-                [Button.inline("✅ I Have Paid", data="claim_pay")]]
+                   "☑ **Fixed Tips:** Correct Score\n✔ **Verification:** Confirmed Selections")
+        
+        btns = [[Button.url("💰 Crypto (Automatic)", "https://pay.oxapay.com/10368962")],
+                [Button.inline("📜 T&C's", data="view_tcs"), Button.inline("✅ I Have Paid", data="claim_pay")]]
         await client.send_file(uid, config.COVERED_TICKET_URL, caption=welcome, buttons=btns)
 
         if uid != config.ADMIN_ID:
@@ -42,7 +42,7 @@ async def core_commands(event):
     elif cmd == 'support':
         await event.reply("💬 **Connected to Support.**\nExplain your issue clearly; Mr. White is listening. 🎯")
 
-# --- 2. ADMIN SUITE (FIND, BROADCAST, SLEEP) ---
+# --- 2. ADMIN SUITE (FIND, BROADCAST STATS, SLEEP) ---
 @client.on(events.NewMessage(from_users=config.ADMIN_ID))
 async def admin_suite(event):
     global pending_replies, sleep_mode_active
@@ -74,14 +74,29 @@ async def admin_suite(event):
             msg_content = text[10:].strip()
             reply_msg = await event.get_reply_message() if event.is_reply else None
             media = event.media if event.media else (reply_msg.media if reply_msg else None)
-            conn = database.get_connection(); cur = conn.cursor(); cur.execute("SELECT user_id FROM subscribers"); users = cur.fetchall(); cur.close(); conn.close()
+            
+            conn = database.get_connection(); cur = conn.cursor()
+            cur.execute("SELECT user_id FROM subscribers"); users = cur.fetchall(); cur.close(); conn.close()
+            
+            status_msg = await event.reply(f"🚀 **Starting Broadcast...**")
+            success, blocked = 0, 0
+            
             for u in users:
                 try:
                     if media: await client.send_file(u[0], media, caption=msg_content)
                     else: await client.send_message(u[0], msg_content)
+                    success += 1
                     await asyncio.sleep(0.3)
-                except: continue
-            await event.reply("✅ **Broadcast Done.**")
+                except:
+                    blocked += 1
+                    continue
+            
+            # Broadcast Stats Report
+            report = (f"✅ **Broadcast Complete**\n━━━━━━━━━━━━━━━━━━━━\n"
+                      f"📤 **Successfully Sent:** {success}\n"
+                      f"🚫 **Failed/Blocked:** {blocked}\n"
+                      f"📊 **Total Target:** {len(users)}")
+            await status_msg.edit(report)
         return
 
     if event.sender_id in pending_replies:
@@ -100,13 +115,21 @@ async def support_forwarder(event):
     await client.send_message(config.ADMIN_ID, f"📩 **SUPPORT FROM `{user.id}`**", buttons=btns)
     await client.forward_messages(config.ADMIN_ID, event.message)
 
-# --- 4. CALLBACKS ---
+# --- 4. CALLBACK HANDLERS ---
 @client.on(events.CallbackQuery())
 async def callback_handler(event):
     global pending_replies
     data = event.data.decode()
 
-    if data == "claim_pay":
+    if data == "view_tcs":
+        tcs_text = ("📜 **Terms & Conditions**\n━━━━━━━━━━━━━━━━━━━━\n"
+                    "1. All sales are final. No refunds after ticket issuance.\n"
+                    "2. Tips are for informational purposes. Stake responsibly.\n"
+                    "3. Access is strictly limited to 24 hours per purchase.\n"
+                    "4. Multiple account usage will result in a permanent ban.")
+        await event.respond(tcs_text)
+
+    elif data == "claim_pay":
         user = await event.get_sender()
         btns = [[Button.inline("✅ Approve", data=f"app_{user.id}"), Button.inline("❌ Reject", data=f"rej_{user.id}")]]
         await client.send_message(config.ADMIN_ID, f"🚨 **PAYMENT CLAIM!**\nID: `{user.id}`", buttons=btns)
@@ -122,8 +145,7 @@ async def callback_handler(event):
     elif data.startswith('rej_'):
         uid = int(data.split('_')[1])
         rej = ("❌ **Payment Rejected**\n\nWe could not verify your payment.\n\n"
-               "If you have already made a payment, kindly contact support immediately with your proof of payment (screenshot or transaction ID) for manual confirmation.\n\n"
-               "**Support:** /support")
+               "If you have already made a payment, kindly contact support immediately with your proof of payment.\n\n**Support:** /support")
         await client.send_message(uid, rej); await event.edit(f"❌ **Rejected `{uid}`**")
 
     elif data.startswith('blk_'):
