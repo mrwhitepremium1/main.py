@@ -5,7 +5,7 @@ from telethon import TelegramClient, events, Button
 import config, database
 
 logging.basicConfig(level=logging.INFO)
-client = TelegramClient('mr_white_v79', config.API_ID, config.API_HASH)
+client = TelegramClient('mr_white_v80', config.API_ID, config.API_HASH)
 pending_replies = {}
 sleep_mode_active = False
 
@@ -14,7 +14,9 @@ sleep_mode_active = False
 async def core_commands(event):
     cmd = event.pattern_match.group(1).lower()
     uid, user = event.sender_id, await event.get_sender()
-    first_name = user.first_name or "User"
+    
+    if sleep_mode_active and uid != config.ADMIN_ID:
+        return await event.reply("🌙 **Mr. White is currently offline.**\nYour request has been logged. Support will attend to you shortly. 🎯")
 
     if cmd == 'start':
         database.init_db()
@@ -22,25 +24,21 @@ async def core_commands(event):
         cur.execute("INSERT INTO subscribers (user_id, username, last_seen) VALUES (%s, %s, %s) ON CONFLICT (user_id) DO UPDATE SET last_seen = %s, username = %s", (uid, user.username, datetime.now(), datetime.now(), user.username))
         conn.commit(); cur.close(); conn.close()
 
-        welcome = (f"Hello 👋 {first_name}!\n\n**Welcome to Mr. White | Official Bot**\n━━━━━━━━━━━━━━━━━━━━\n"
+        welcome = (f"Hello 👋 {user.first_name or 'User'}!\n\n**Welcome to Mr. White | Official Bot**\n━━━━━━━━━━━━━━━━━━━━\n"
                    "💎 **PREMIUM INFO ARRIVED**\n⭐ **CONFIRMED TICKET** 🎫\n\n"
                    "☑ **Fixed Tips:** Correct Score\n✔ **Verification:** Confirmed Selections")
         
+        # "I Have Paid" Button Removed
         btns = [[Button.url("💰 Crypto (Automatic)", "https://pay.oxapay.com/10368962")],
-                [Button.inline("📜 T&C's", data="view_tcs"), Button.inline("✅ I Have Paid", data="claim_pay")]]
+                [Button.inline("📜 T&C's", data="view_tcs")]]
         await client.send_file(uid, config.COVERED_TICKET_URL, caption=welcome, buttons=btns)
-
-        if uid != config.ADMIN_ID:
-            adm_btns = [[Button.inline("💬 Reply", data=f"qr_{uid}"), Button.inline("🚫 Block", data=f"blk_{uid}")]]
-            alert = (f"👤 **New Visitor Alert!**\n━━━━━━━━━━━━━━━━━━━━\n**Name:** {first_name}\n**ID:** `{uid}`\n**User:** @{user.username}")
-            await client.send_message(config.ADMIN_ID, alert, buttons=adm_btns)
 
     elif cmd == 'status':
         is_active = database.is_user_approved(uid)
         await event.reply("📊 Status: **Active** ✅" if is_active else "📊 Status: **Inactive** ❌")
 
     elif cmd == 'support':
-        await event.reply("💬 **Connected to Support.**\nExplain your issue clearly; Mr. White is listening. 🎯")
+        await event.reply("💬 **Connected to Support.**\nExplain your issue clearly or send your receipt; Mr. White is listening. 🎯")
 
 # --- 2. ADMIN SUITE (FIND, BROADCAST STATS, SLEEP) ---
 @client.on(events.NewMessage(from_users=config.ADMIN_ID))
@@ -74,29 +72,18 @@ async def admin_suite(event):
             msg_content = text[10:].strip()
             reply_msg = await event.get_reply_message() if event.is_reply else None
             media = event.media if event.media else (reply_msg.media if reply_msg else None)
+            conn = database.get_connection(); cur = conn.cursor(); cur.execute("SELECT user_id FROM subscribers"); users = cur.fetchall(); cur.close(); conn.close()
             
-            conn = database.get_connection(); cur = conn.cursor()
-            cur.execute("SELECT user_id FROM subscribers"); users = cur.fetchall(); cur.close(); conn.close()
-            
-            status_msg = await event.reply(f"🚀 **Starting Broadcast...**")
+            status_msg = await event.reply(f"🚀 **Broadcasting...**")
             success, blocked = 0, 0
-            
             for u in users:
                 try:
                     if media: await client.send_file(u[0], media, caption=msg_content)
                     else: await client.send_message(u[0], msg_content)
                     success += 1
                     await asyncio.sleep(0.3)
-                except:
-                    blocked += 1
-                    continue
-            
-            # Broadcast Stats Report
-            report = (f"✅ **Broadcast Complete**\n━━━━━━━━━━━━━━━━━━━━\n"
-                      f"📤 **Successfully Sent:** {success}\n"
-                      f"🚫 **Failed/Blocked:** {blocked}\n"
-                      f"📊 **Total Target:** {len(users)}")
-            await status_msg.edit(report)
+                except: blocked += 1
+            await status_msg.edit(f"✅ **Broadcast Done**\n━━━━━━━━━━━━━━━━━━━━\n📤 **Sent:** {success}\n🚫 **Blocked/Failed:** {blocked}")
         return
 
     if event.sender_id in pending_replies:
@@ -106,46 +93,43 @@ async def admin_suite(event):
         else: await client.send_message(uid, f"{prefix}{text}")
         await event.reply(f"✅ **Replied to `{uid}`**")
 
-# --- 3. SUPPORT FORWARDER ---
+# --- 3. SUPPORT FORWARDER (WITH SLEEP ALERT) ---
 @client.on(events.NewMessage(incoming=True))
 async def support_forwarder(event):
     if event.sender_id == config.ADMIN_ID or event.raw_text.startswith('/') or not event.is_private: return
+    
+    if sleep_mode_active:
+        return await event.reply("🌙 **Mr. White is currently offline.**\nYour message has been received and will be reviewed once we are back online. 🎯")
+
     user = await event.get_sender()
     btns = [[Button.inline("💬 Reply", data=f"qr_{user.id}"), Button.inline("🚫 Block", data=f"blk_{user.id}")]]
     await client.send_message(config.ADMIN_ID, f"📩 **SUPPORT FROM `{user.id}`**", buttons=btns)
     await client.forward_messages(config.ADMIN_ID, event.message)
 
-# --- 4. CALLBACK HANDLERS ---
+# --- 4. CALLBACKS ---
 @client.on(events.CallbackQuery())
 async def callback_handler(event):
     global pending_replies
     data = event.data.decode()
 
     if data == "view_tcs":
-        tcs_text = ("📜 **Terms & Conditions**\n━━━━━━━━━━━━━━━━━━━━\n"
-                    "1. All sales are final. No refunds after ticket issuance.\n"
-                    "2. Tips are for informational purposes. Stake responsibly.\n"
-                    "3. Access is strictly limited to 24 hours per purchase.\n"
-                    "4. Multiple account usage will result in a permanent ban.")
-        await event.respond(tcs_text)
-
-    elif data == "claim_pay":
-        user = await event.get_sender()
-        btns = [[Button.inline("✅ Approve", data=f"app_{user.id}"), Button.inline("❌ Reject", data=f"rej_{user.id}")]]
-        await client.send_message(config.ADMIN_ID, f"🚨 **PAYMENT CLAIM!**\nID: `{user.id}`", buttons=btns)
-        await event.answer("✅ Sent to Admin.", alert=True)
+        tcs = ("📜 **Terms & Conditions**\n━━━━━━━━━━━━━━━━━━━━\n"
+               "1. All sales are final. No refunds after ticket issuance.\n"
+               "2. Tips are for informational purposes. Stake responsibly.\n"
+               "3. Access is strictly limited to 24 hours per purchase.\n"
+               "4. Multiple account usage will result in a permanent ban.")
+        await event.respond(tcs)
 
     elif data.startswith('app_'):
         uid = int(data.split('_')[1]); database.approve_user_24h(uid)
         msg = ("✅ **PAYMENT VERIFIED**\n━━━━━━━━━━━━━━━━━━━━\n🎫 **YOUR OFFICIAL TICKET HAS BEEN ISSUED**\n\n"
-               "Your access is now active for **24 Hours**. Please find selections on the ticket above.\n\n🤝 **Good Luck.**")
+               "Your access is now active for **24 Hours**. Please find selections on the ticket above.")
         await client.send_file(uid, config.TICKET_URL, caption=msg)
         await event.edit(f"✅ **Approved `{uid}`**")
 
     elif data.startswith('rej_'):
         uid = int(data.split('_')[1])
-        rej = ("❌ **Payment Rejected**\n\nWe could not verify your payment.\n\n"
-               "If you have already made a payment, kindly contact support immediately with your proof of payment.\n\n**Support:** /support")
+        rej = ("❌ **Payment Rejected**\n\nWe could not verify your payment. Contact support with proof of payment.")
         await client.send_message(uid, rej); await event.edit(f"❌ **Rejected `{uid}`**")
 
     elif data.startswith('blk_'):
