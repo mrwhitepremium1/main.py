@@ -19,9 +19,8 @@ def init_db():
         cur.execute("ALTER TABLE subscribers ADD COLUMN IF NOT EXISTS approved_until TIMESTAMP DEFAULT NULL;")
         cur.execute("ALTER TABLE subscribers ADD COLUMN IF NOT EXISTS plan_type TEXT DEFAULT 'Free';")
         conn.commit()
-        print("✅ DB Initialized & Schema Migrated.")
     except Exception as e:
-        print(f"❌ DB Error: {e}"); conn.rollback()
+        conn.rollback()
     finally:
         cur.close(); conn.close()
 
