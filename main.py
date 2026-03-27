@@ -5,11 +5,11 @@ from telethon import TelegramClient, events, Button
 import config, database
 
 logging.basicConfig(level=logging.INFO)
-client = TelegramClient('mr_white_v84', config.API_ID, config.API_HASH)
+client = TelegramClient('mr_white_v85', config.API_ID, config.API_HASH)
 pending_replies = {}
 sleep_mode_active = False
 
-# --- 1. CORE COMMANDS (START, STATUS, SUPPORT) ---
+# --- 1. CORE COMMANDS ---
 @client.on(events.NewMessage(pattern=r'^/(start|status|support)'))
 async def core_commands(event):
     global sleep_mode_active
@@ -26,16 +26,18 @@ async def core_commands(event):
                     (uid, user.username, datetime.now(), datetime.now(), user.username))
         conn.commit(); cur.close(); conn.close()
 
-        # Admin Alert with Last Seen Timestamp
+        # Visitor Alert with View Profile Photo Button
         if uid != config.ADMIN_ID:
-            adm_btns = [[Button.inline("💬 Reply", data=f"qr_{uid}"), Button.inline("🚫 Block", data=f"blk_{uid}")]]
+            adm_btns = [
+                [Button.inline("💬 Reply", data=f"qr_{uid}"), Button.inline("🖼 View DP", data=f"pfp_{uid}")],
+                [Button.inline("🚫 Block", data=f"blk_{uid}")]
+            ]
             status_tag = " (🌙 Offline)" if sleep_mode_active else ""
             alert = (f"👤 **New Visitor Alert!**{status_tag}\n━━━━━━━━━━━━━━━━━━━━\n"
                      f"**Name:** {first_name}\n**ID:** `{uid}`\n**User:** @{user.username}\n"
                      f"🕒 **Joined At:** `{now_time}`")
             await client.send_message(config.ADMIN_ID, alert, buttons=adm_btns)
 
-        # Handle Sleep Mode for User
         if sleep_mode_active and uid != config.ADMIN_ID:
             return await event.reply("🌙 **Mr. White is currently offline.**\nYour request has been logged. Support will attend to you shortly. 🎯")
 
@@ -120,8 +122,8 @@ async def support_forwarder(event):
     if sleep_mode_active:
         await event.reply("🌙 **Mr. White is currently offline.**\nYour message has been received and will be reviewed once back online. 🎯")
 
-    btns = [[Button.inline("💬 Reply", data=f"qr_{uid}"), Button.inline("🚫 Block", data=f"blk_{uid}")]]
-    await client.send_message(config.ADMIN_ID, f"📩 **SUPPORT FROM `{uid}`** {'(🌙 Sleep)' if sleep_mode_active else ''}\n🕒 **Time:** `{now_time}`", buttons=btns)
+    btns = [[Button.inline("💬 Reply", data=f"qr_{uid}"), Button.inline("🖼 View DP", data=f"pfp_{uid}")]]
+    await client.send_message(config.ADMIN_ID, f"📩 **SUPPORT FROM `{uid}`**\n🕒 **Time:** `{now_time}`", buttons=btns)
     await client.forward_messages(config.ADMIN_ID, event.message)
 
 # --- 4. CALLBACKS ---
@@ -130,7 +132,18 @@ async def callback_handler(event):
     global pending_replies
     data = event.data.decode()
 
-    if data == "view_tcs":
+    if data.startswith('pfp_'):
+        uid = int(data.split('_')[1])
+        try:
+            photos = await client.get_profile_photos(uid, limit=1)
+            if photos:
+                await client.send_file(config.ADMIN_ID, photos[0], caption=f"🖼 **Profile Picture for ID:** `{uid}`")
+            else:
+                await event.answer("❌ User has no profile photo.", alert=True)
+        except Exception as e:
+            await event.answer(f"❌ Error: {str(e)}", alert=True)
+
+    elif data == "view_tcs":
         tcs = ("📜 **Terms & Conditions**\n━━━━━━━━━━━━━━━━━━━━\n"
                "1. All sales are final. No refunds.\n"
                "2. Tips are for info only. Stake responsibly.\n"
